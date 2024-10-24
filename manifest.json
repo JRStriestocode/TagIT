@@ -3,9 +3,9 @@
   "name": "TagIT",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
-  "description": "Enhance Obsidian's tagging system by associating YAML tags with folders.",
-  "author": "Your Name",
-  "authorUrl": "https://github.com/yourusername",
+  "description": "Take your Obsidian setup to the next level with smart tagging! Automatically assign YAML tags to files by simply dropping them into tagged folders. Perfect for keeping your notes organized without the hassle—ideal for pros who love efficiency and a streamlined workflow.",
+  "author": "JrsTriesToCode",
+  "authorUrl": "https://github.com/JRStriestocode",
   "isDesktopOnly": false,
   "css": "styles.css"
 }

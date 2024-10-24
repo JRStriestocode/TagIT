@@ -54,7 +54,7 @@ export default class TagITPlugin extends Plugin {
 
       console.log("TagIT plugin loaded successfully");
     } catch (error) {
-      console.error("TagIT: Error during plugin load", error);
+      this.handleError(error, "Plugin initialization");
     }
 
     this.addSettingTab(new TagITSettingTab(this.app, this));
@@ -79,31 +79,71 @@ export default class TagITPlugin extends Plugin {
 
   async onFileCreated(file: TFile) {
     console.log("File created:", file.path);
-    await this.applyFolderTagsToFile(file);
+    await this.applyFolderTagsToFile(file, true);
   }
 
   async onFileRenamed(file: TFile, oldPath: string) {
     console.log("File renamed:", file.path, "Old path:", oldPath);
-    await this.applyFolderTagsToFile(file);
+    // We don't add tags when a file is renamed
   }
 
-  async applyFolderTagsToFile(file: TFile) {
-    console.log("Applying tags to file:", file.path);
-    const folderPath = file.parent?.path || "";
-    const tags = this.getFolderTags(folderPath);
+  async applyFolderTagsToFile(file: TFile, isNewOrMoved: boolean = false) {
+    try {
+      console.log("Applying tags to file:", file.path);
 
-    console.log("Tags to apply:", tags);
+      // Check if the file still exists
+      if (!this.app.vault.getAbstractFileByPath(file.path)) {
+        console.log("File no longer exists, skipping tag application");
+        return;
+      }
 
-    const content = await this.app.vault.read(file);
-    const updatedContent = this.addTagsToContent(content, tags);
+      const folderPath = file.parent?.path || "";
+      const tagsToApply = this.getFolderTags(folderPath);
 
-    if (content !== updatedContent) {
-      await this.app.vault.modify(file, updatedContent);
-      console.log("Tags applied to file");
-      new Notice(`Tags applied to "${file.name}"`);
-    } else {
-      console.log("No changes needed for file");
+      console.log("Tags to apply:", tagsToApply);
+
+      if (tagsToApply.length > 0) {
+        const content = await this.app.vault.read(file);
+        const existingTags = this.getExistingTags(content);
+        const newTags = tagsToApply.filter(
+          (tag) => !existingTags.includes(tag)
+        );
+
+        if (
+          newTags.length > 0 &&
+          (isNewOrMoved || !this.hasTagsInContent(content))
+        ) {
+          const updatedContent = this.addTagsToContent(content, newTags);
+          if (content !== updatedContent) {
+            await this.app.vault.modify(file, updatedContent);
+            console.log("Tags applied to file");
+            new Notice(`Tags applied to "${file.name}"`);
+          } else {
+            console.log("No changes needed for file");
+          }
+        } else {
+          console.log("No new tags to apply or file already has tags");
+        }
+      }
+    } catch (error) {
+      this.handleError(error, `Applying tags to file: ${file.path}`);
     }
+  }
+
+  private getExistingTags(content: string): string[] {
+    const frontMatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    if (frontMatterMatch) {
+      const frontMatter = frontMatterMatch[1];
+      const tagMatch = frontMatter.match(/tags:\s*\[(.*?)\]/);
+      if (tagMatch) {
+        return tagMatch[1].split(",").map((tag) => tag.trim());
+      }
+    }
+    return [];
+  }
+
+  private hasTagsInContent(content: string): boolean {
+    return /^#\w+/m.test(content);
   }
 
   getFolderTags(folderPath: string): string[] {
@@ -164,18 +204,26 @@ export default class TagITPlugin extends Plugin {
   }
 
   async removeFolderTags(folder: TFolder) {
-    delete this.settings.folderTags[folder.path];
-    await this.saveSettings();
-    console.log(`Tags removed for folder ${folder.path}`);
-    new Notice(`Tags removed from "${folder.name}"`);
+    try {
+      delete this.settings.folderTags[folder.path];
+      await this.saveSettings();
+      console.log(`Tags removed for folder ${folder.path}`);
+      new Notice(`Tags removed from "${folder.name}"`);
+    } catch (error) {
+      this.handleError(error, `Removing tags from folder: ${folder.path}`);
+    }
   }
 
   async removeTagsFromFile(file: TFile) {
-    const content = await this.app.vault.read(file);
-    const updatedContent = this.removeTagsFromContent(content);
-    await this.app.vault.modify(file, updatedContent);
-    console.log(`Tags removed from file ${file.path}`);
-    new Notice(`Tags removed from "${file.name}"`);
+    try {
+      const content = await this.app.vault.read(file);
+      const updatedContent = this.removeTagsFromContent(content);
+      await this.app.vault.modify(file, updatedContent);
+      console.log(`Tags removed from file ${file.path}`);
+      new Notice(`Tags removed from "${file.name}"`);
+    } catch (error) {
+      this.handleError(error, `Removing tags from file: ${file.path}`);
+    }
   }
 
   removeTagsFromFrontMatter(content: string): string {
@@ -204,12 +252,16 @@ export default class TagITPlugin extends Plugin {
   }
 
   async addTagsToFolder(folderPath: string, tags: string[]) {
-    if (!this.settings.folderTags[folderPath]) {
-      this.settings.folderTags[folderPath] = [];
+    try {
+      if (!this.settings.folderTags[folderPath]) {
+        this.settings.folderTags[folderPath] = [];
+      }
+      this.settings.folderTags[folderPath].push(...tags);
+      await this.saveSettings();
+      console.log(`Added tags ${tags.join(", ")} to folder ${folderPath}`);
+    } catch (error) {
+      this.handleError(error, `Adding tags to folder: ${folderPath}`);
     }
-    this.settings.folderTags[folderPath].push(...tags);
-    await this.saveSettings();
-    console.log(`Added tags ${tags.join(", ")} to folder ${folderPath}`);
   }
 
   // Add these new methods to split up the functionality:
@@ -231,6 +283,35 @@ export default class TagITPlugin extends Plugin {
         }
       })
     );
+
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        if (file instanceof TFolder) {
+          delete this.settings.folderTags[file.path];
+          this.saveSettings();
+        }
+      })
+    );
+
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (file instanceof TFile && file.extension === "md") {
+          // Check if the file was moved
+          const currentPath = file.path;
+          const oldPath = this.getOldPath(file);
+          if (oldPath && oldPath !== currentPath) {
+            this.onFileMoved(file, oldPath);
+          }
+        }
+      })
+    );
+  }
+
+  private getOldPath(file: TFile): string | null {
+    // Implement a method to get the old path of the file
+    // This might involve keeping track of file paths in your plugin
+    // For now, we'll return null
+    return null;
   }
 
   private addCommands() {
@@ -407,6 +488,58 @@ export default class TagITPlugin extends Plugin {
   removeTagsFromPlainText(content: string): string {
     return content.replace(/^(#\w+\s*)+\n*/, "");
   }
+
+  async onFileMoved(file: TFile, oldPath: string) {
+    console.log("File moved:", file.path, "Old path:", oldPath);
+    await this.applyFolderTagsToFile(file, true);
+  }
+
+  private handleError(error: any, context: string) {
+    console.error(`TagIT Error (${context}):`, error);
+    new Notice(`TagIT Error: ${context}. Check console for details.`);
+  }
+}
+
+class TagInputField extends TextComponent {
+  constructor(containerEl: HTMLElement) {
+    super(containerEl);
+    this.inputEl.addEventListener("keydown", this.onKeyDown.bind(this));
+  }
+
+  private onKeyDown(event: KeyboardEvent) {
+    if (event.key === "," || event.key === "Enter") {
+      event.preventDefault();
+      this.insertTag(this.getCurrentTag());
+    }
+  }
+
+  private getCurrentTag(): string {
+    const cursorPosition = this.inputEl.selectionStart ?? 0;
+    const inputValue = this.getValue();
+    const lastCommaIndex = inputValue.lastIndexOf(",", cursorPosition - 1);
+    return inputValue.slice(lastCommaIndex + 1, cursorPosition).trim();
+  }
+
+  private insertTag(tag: string) {
+    if (!tag) return;
+
+    const currentValue = this.getValue();
+    const cursorPosition = this.inputEl.selectionStart ?? 0;
+    const lastCommaIndex = currentValue.lastIndexOf(",", cursorPosition - 1);
+
+    const newValue =
+      currentValue.slice(0, lastCommaIndex + 1) +
+      (lastCommaIndex !== -1 ? " " : "") +
+      tag +
+      ", " +
+      currentValue.slice(cursorPosition);
+
+    this.setValue(newValue);
+    this.inputEl.setSelectionRange(
+      lastCommaIndex + tag.length + 3,
+      lastCommaIndex + tag.length + 3
+    );
+  }
 }
 
 class TagFolderModal extends Modal {
@@ -468,7 +601,7 @@ class TagFolderModal extends Modal {
       text: "Tags:",
       attr: { for: "tag-input" },
     });
-    this.tagInput = new TextComponent(tagContainer).setPlaceholder(
+    this.tagInput = new TagInputField(tagContainer).setPlaceholder(
       "Enter tags (comma-separated)"
     );
     this.tagInput.inputEl.id = "tag-input";
@@ -551,7 +684,12 @@ class TagFolderModal extends Modal {
 
         // Apply new tags to existing files
         if (newTags.length > 0) {
-          await this.plugin.applyTagsToExistingFiles(this.folder, newTags);
+          const files = this.app.vault
+            .getMarkdownFiles()
+            .filter((file) => file.path.startsWith(this.folder.path));
+          for (const file of files) {
+            await this.plugin.applyFolderTagsToFile(file, false);
+          }
         }
 
         new Notice(`Folder "${newFolderName}" updated with tags`);
@@ -628,7 +766,7 @@ class CreateFolderModal extends Modal {
       text: "Tags:",
       attr: { for: "new-tag-input" },
     });
-    this.tagInput = new TextComponent(tagContainer).setPlaceholder(
+    this.tagInput = new TagInputField(tagContainer).setPlaceholder(
       "Enter tags (comma-separated)"
     );
     this.tagInput.inputEl.id = "new-tag-input";
