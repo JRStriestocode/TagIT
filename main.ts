@@ -6,16 +6,20 @@ import {
   Modal,
   Notice,
   TextComponent,
+  PluginSettingTab,
+  Setting,
 } from "obsidian";
 
 interface TagITSettings {
   folderTags: Record<string, string[]>;
   debugMode: boolean;
+  useFrontMatter: boolean; // New setting
 }
 
 const DEFAULT_SETTINGS: TagITSettings = {
   folderTags: {},
   debugMode: false,
+  useFrontMatter: true, // Default to using front matter
 };
 
 export default class TagITPlugin extends Plugin {
@@ -52,6 +56,8 @@ export default class TagITPlugin extends Plugin {
     } catch (error) {
       console.error("TagIT: Error during plugin load", error);
     }
+
+    this.addSettingTab(new TagITSettingTab(this.app, this));
   }
 
   onunload() {
@@ -89,20 +95,15 @@ export default class TagITPlugin extends Plugin {
     console.log("Tags to apply:", tags);
 
     const content = await this.app.vault.read(file);
-    const updatedContent =
-      tags.length > 0
-        ? this.addTagsToFrontMatter(content, tags)
-        : this.removeTagsFromFrontMatter(content);
+    const updatedContent = this.addTagsToContent(content, tags);
 
-    await this.app.vault.modify(file, updatedContent);
-    console.log(
-      tags.length > 0 ? "Tags applied to file" : "Tags removed from file"
-    );
-    new Notice(
-      tags.length > 0
-        ? `Tags applied to "${file.name}"`
-        : `Tags removed from "${file.name}"`
-    );
+    if (content !== updatedContent) {
+      await this.app.vault.modify(file, updatedContent);
+      console.log("Tags applied to file");
+      new Notice(`Tags applied to "${file.name}"`);
+    } else {
+      console.log("No changes needed for file");
+    }
   }
 
   getFolderTags(folderPath: string): string[] {
@@ -171,7 +172,7 @@ export default class TagITPlugin extends Plugin {
 
   async removeTagsFromFile(file: TFile) {
     const content = await this.app.vault.read(file);
-    const updatedContent = this.removeTagsFromFrontMatter(content);
+    const updatedContent = this.removeTagsFromContent(content);
     await this.app.vault.modify(file, updatedContent);
     console.log(`Tags removed from file ${file.path}`);
     new Notice(`Tags removed from "${file.name}"`);
@@ -362,6 +363,50 @@ export default class TagITPlugin extends Plugin {
 
     return content;
   }
+
+  addTagsToContent(content: string, tagsToAdd: string[]): string {
+    if (this.settings.useFrontMatter) {
+      return this.addTagsToFrontMatter(content, tagsToAdd);
+    } else {
+      return this.addTagsAsPlainText(content, tagsToAdd);
+    }
+  }
+
+  addTagsAsPlainText(content: string, tagsToAdd: string[]): string {
+    const existingTagsMatch = content.match(/^(#\w+\s*)+/);
+    const existingTags = existingTagsMatch
+      ? existingTagsMatch[0].split(/\s+/).map((tag) => tag.slice(1))
+      : [];
+
+    const newTags = tagsToAdd.filter((tag) => !existingTags.includes(tag));
+
+    if (newTags.length === 0) {
+      return content; // No new tags to add
+    }
+
+    const newTagString = newTags.map((tag) => `#${tag}`).join(" ");
+
+    if (existingTagsMatch) {
+      return content.replace(
+        /^(#\w+\s*)+/,
+        `${existingTagsMatch[0]} ${newTagString}\n\n`
+      );
+    } else {
+      return `${newTagString}\n\n${content}`;
+    }
+  }
+
+  removeTagsFromContent(content: string): string {
+    if (this.settings.useFrontMatter) {
+      return this.removeTagsFromFrontMatter(content);
+    } else {
+      return this.removeTagsFromPlainText(content);
+    }
+  }
+
+  removeTagsFromPlainText(content: string): string {
+    return content.replace(/^(#\w+\s*)+\n*/, "");
+  }
 }
 
 class TagFolderModal extends Modal {
@@ -393,9 +438,6 @@ class TagFolderModal extends Modal {
     const logoEl = headerEl.createEl("div", { cls: "tagit-logo" });
     logoEl.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="css-i6dzq1"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>`;
     logoEl.createSpan({ text: "TagIT" });
-
-    // Use the built-in close button
-    headerEl.createDiv("modal-close-button");
 
     // Create content container
     const contentContainer = contentEl.createEl("div", {
@@ -459,6 +501,27 @@ class TagFolderModal extends Modal {
       cls: "mod-cta",
     });
     saveButton.addEventListener("click", this.saveChanges.bind(this));
+
+    // Add event listener for Enter key
+    this.tagInput.inputEl.addEventListener(
+      "keydown",
+      (event: KeyboardEvent) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          this.saveChanges();
+        }
+      }
+    );
+
+    this.folderNameInput.inputEl.addEventListener(
+      "keydown",
+      (event: KeyboardEvent) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          this.saveChanges();
+        }
+      }
+    );
   }
 
   async saveChanges() {
@@ -536,9 +599,6 @@ class CreateFolderModal extends Modal {
     logoEl.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="css-i6dzq1"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>`;
     logoEl.createSpan({ text: "TagIT" });
 
-    // Use the built-in close button
-    headerEl.createDiv("modal-close-button");
-
     // Create content container
     const contentContainer = contentEl.createEl("div", {
       cls: "tagit-modal-content",
@@ -587,6 +647,27 @@ class CreateFolderModal extends Modal {
       cls: "mod-cta",
     });
     createButton.addEventListener("click", this.createFolder.bind(this));
+
+    // Add event listener for Enter key
+    this.tagInput.inputEl.addEventListener(
+      "keydown",
+      (event: KeyboardEvent) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          this.createFolder();
+        }
+      }
+    );
+
+    this.folderNameInput.inputEl.addEventListener(
+      "keydown",
+      (event: KeyboardEvent) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          this.createFolder();
+        }
+      }
+    );
   }
 
   async createFolder() {
@@ -619,5 +700,40 @@ class CreateFolderModal extends Modal {
   onClose() {
     const { contentEl } = this;
     contentEl.empty();
+  }
+}
+
+class TagITSettingTab extends PluginSettingTab {
+  plugin: TagITPlugin;
+
+  constructor(app: App, plugin: TagITPlugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+
+  display(): void {
+    const { containerEl } = this;
+
+    containerEl.empty();
+
+    containerEl.createEl("h2", { text: "TagIT Settings" });
+
+    containerEl.createEl("p", {
+      text:
+        "TagIT enhances Obsidian's tagging system by associating YAML tags with folders. " +
+        "It allows you to automatically apply tags to files based on their location in your vault structure.",
+    });
+
+    new Setting(containerEl)
+      .setName("Use Front Matter")
+      .setDesc("Toggle between using front matter or plain text for tags")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.useFrontMatter)
+          .onChange(async (value) => {
+            this.plugin.settings.useFrontMatter = value;
+            await this.plugin.saveSettings();
+          })
+      );
   }
 }
