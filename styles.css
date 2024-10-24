@@ -1,0 +1,141 @@
+.button-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.button-container button {
+  margin-left: 10px;
+}
+
+.button-container button.mod-warning {
+  background-color: var(--text-error);
+  color: var(--text-on-accent);
+}
+
+.button-container button.mod-cta {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.tag-input-container {
+  display: flex;
+  margin-bottom: 10px;
+}
+
+.tag-input-container input {
+  flex-grow: 1;
+  margin-right: 10px;
+}
+
+.suggest-tags-button {
+  flex-shrink: 0;
+}
+
+/* New styles for modal layout */
+.modal {
+  padding-top: 0;
+}
+
+.modal-close-button {
+  top: 12px;
+}
+
+.modal-title {
+  margin-top: 0;
+  margin-bottom: 16px;
+  padding-right: 20px;
+}
+
+.modal-content {
+  padding-top: 0;
+}
+
+.tagit-modal .setting-item {
+  padding-top: 0.75em;
+  padding-bottom: 0.75em;
+}
+
+.tagit-modal input[type="text"] {
+  width: 100%;
+}
+
+.tagit-modal .input-container {
+  margin-bottom: 1em;
+}
+
+.tagit-modal .input-container label {
+  display: block;
+  margin-bottom: 0.5em;
+  font-weight: bold;
+}
+
+.tagit-modal .input-container input {
+  width: 100%;
+  padding: 0.5em;
+}
+
+.tagit-header {
+  display: flex;
+  align-items: center;
+  font-size: 0.8em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.tagit-header svg {
+  margin-right: 4px;
+}
+
+.tagit-header-text {
+  font-weight: bold;
+}
+
+/* New styles for the modal header */
+.tagit-modal {
+  padding: 0;
+}
+
+.tagit-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background-color: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.tagit-logo {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--text-muted);
+}
+
+.tagit-logo svg {
+  margin-right: 8px;
+}
+
+.tagit-modal-content {
+  padding: 16px;
+}
+
+.tagit-modal .modal-close-button {
+  position: static;
+  padding: 0;
+  color: var(--text-muted);
+}
+
+.tagit-modal .modal-title {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.tagit-modal .input-container {
+  margin-bottom: 16px;
+}
+
+.tagit-modal .button-container {
+  margin-top: 24px;
+}
