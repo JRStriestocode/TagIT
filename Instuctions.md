@@ -341,7 +341,6 @@
     - Automatic tag removal when files are moved out.
     - Tagging exclusions and overrides.
     - Visual indicators for tagged folders.
-    - Batch tag application.
     - Tag inheritance customization.
     - Integration with Obsidian's Tag Pane.
     - Customization of tag storage location.

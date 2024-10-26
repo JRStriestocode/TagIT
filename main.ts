@@ -12,6 +12,8 @@ import {
 
 interface TagItSettings {
   mySetting: string;
+  inheritanceMode: "none" | "immediate" | "all";
+  excludedFolders: string[];
 }
 
 interface FolderTags {
@@ -20,6 +22,8 @@ interface FolderTags {
 
 const DEFAULT_SETTINGS: TagItSettings = {
   mySetting: "default",
+  inheritanceMode: "immediate",
+  excludedFolders: [],
 };
 
 export default class TagItPlugin extends Plugin {
@@ -167,6 +171,22 @@ export default class TagItPlugin extends Plugin {
         }
       })
     );
+
+    // Update folder icons when the plugin loads
+    this.app.workspace.onLayoutReady(() => {
+      this.updateFolderIcons();
+    });
+
+    // Update folder icons when files are created, deleted, or renamed
+    this.registerEvent(
+      this.app.vault.on("create", () => this.updateFolderIcons())
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", () => this.updateFolderIcons())
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", () => this.updateFolderIcons())
+    );
   }
 
   onunload() {
@@ -222,6 +242,7 @@ export default class TagItPlugin extends Plugin {
   setFolderTags(folderPath: string, tags: string[]) {
     this.folderTags[folderPath] = tags;
     this.saveFolderTags();
+    this.updateFolderIcons();
   }
 
   getFolderTags(folderPath: string): string[] {
@@ -248,7 +269,7 @@ export default class TagItPlugin extends Plugin {
   async handleFileCreation(file: TFile) {
     const folder = file.parent;
     if (folder) {
-      const folderTags = this.getFolderTags(folder.path);
+      const folderTags = this.getFolderTagsWithInheritance(folder.path);
       if (folderTags.length > 0) {
         await this.addTagsToFile(file, folderTags);
       }
@@ -266,8 +287,10 @@ export default class TagItPlugin extends Plugin {
     );
 
     if (oldFolderPath !== newFolder?.path) {
-      const oldFolderTags = this.getFolderTags(oldFolderPath);
-      const newFolderTags = this.getFolderTags(newFolder?.path || "");
+      const oldFolderTags = this.getFolderTagsWithInheritance(oldFolderPath);
+      const newFolderTags = this.getFolderTagsWithInheritance(
+        newFolder?.path || ""
+      );
 
       console.log(`Old folder tags: ${oldFolderTags.join(", ")}`);
       console.log(`New folder tags: ${newFolderTags.join(", ")}`);
@@ -539,6 +562,68 @@ export default class TagItPlugin extends Plugin {
   async promptForFolderTags(folder: TFolder) {
     new FolderTagModal(this.app, folder, this, true).open();
   }
+
+  getFolderTagsWithInheritance(folderPath: string): string[] {
+    if (this.settings.inheritanceMode === "none") {
+      return this.getFolderTags(folderPath);
+    }
+
+    let tags: string[] = [];
+    let currentPath = folderPath;
+
+    while (currentPath) {
+      if (!this.settings.excludedFolders.includes(currentPath)) {
+        tags = [...new Set([...tags, ...this.getFolderTags(currentPath)])];
+      }
+
+      if (this.settings.inheritanceMode === "immediate") {
+        break;
+      }
+
+      currentPath = currentPath.substring(0, currentPath.lastIndexOf("/"));
+    }
+
+    return tags;
+  }
+
+  async updateFolderIcons() {
+    const fileExplorer = this.app.workspace.getLeavesOfType("file-explorer")[0];
+    if (!fileExplorer) return;
+
+    const fileExplorerView = fileExplorer.view as any;
+    const fileItems = fileExplorerView.fileItems;
+
+    for (const [path, item] of Object.entries(fileItems)) {
+      if (
+        item &&
+        typeof item === "object" &&
+        "el" in item &&
+        "file" in item &&
+        item.file instanceof TFolder
+      ) {
+        const folderTags = this.getFolderTagsWithInheritance(path as string);
+        const folderEl = item.el as HTMLElement;
+        const iconEl = folderEl.querySelector(
+          ".nav-folder-title-content"
+        ) as HTMLElement | null;
+
+        if (iconEl) {
+          if (folderTags.length > 0) {
+            iconEl.addClass("tagged-folder");
+            iconEl.setAttribute(
+              "aria-label",
+              `Tagged folder: ${folderTags.join(", ")}`
+            );
+          } else {
+            iconEl.removeClass("tagged-folder");
+            iconEl.removeAttribute("aria-label");
+          }
+        } else {
+          console.warn(`Could not find icon element for folder: ${path}`);
+        }
+      }
+    }
+  }
 }
 
 class FolderTagModal extends Modal {
@@ -694,10 +779,44 @@ class TagItSettingTab extends PluginSettingTab {
 
   display(): void {
     const { containerEl } = this;
-
     containerEl.empty();
 
     containerEl.createEl("h2", { text: "TagIt Settings" });
+
+    new Setting(containerEl)
+      .setName("Tag Inheritance Mode")
+      .setDesc("Choose how tags are inherited in nested folders")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("none", "No inheritance")
+          .addOption("immediate", "Inherit from immediate parent")
+          .addOption("all", "Inherit from all parents")
+          .setValue(this.plugin.settings.inheritanceMode)
+          .onChange(async (value) => {
+            this.plugin.settings.inheritanceMode = value as
+              | "none"
+              | "immediate"
+              | "all";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Excluded Folders")
+      .setDesc(
+        "Enter folder paths to exclude from tag inheritance (one per line)"
+      )
+      .addTextArea((text) =>
+        text
+          .setPlaceholder("folder1\nfolder2/subfolder")
+          .setValue(this.plugin.settings.excludedFolders.join("\n"))
+          .onChange(async (value) => {
+            this.plugin.settings.excludedFolders = value
+              .split("\n")
+              .filter((f) => f.trim() !== "");
+            await this.plugin.saveSettings();
+          })
+      );
 
     new Setting(containerEl)
       .setName("Setting")

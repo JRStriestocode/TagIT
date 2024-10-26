@@ -18,3 +18,30 @@
   margin-left: 4px;
   cursor: pointer;
 }
+
+.tagged-folder::after {
+  content: "";
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  vertical-align: middle;
+  filter: var(--icon-color-filter);
+}
+
+body {
+  --icon-color: var(--text-accent);
+  --icon-color-filter: invert(var(--icon-color-invert))
+    sepia(var(--icon-color-sepia)) saturate(var(--icon-color-saturate))
+    hue-rotate(var(--icon-color-hue-rotate))
+    brightness(var(--icon-color-brightness));
+  --icon-color-invert: 0.5;
+  --icon-color-sepia: 0.5;
+  --icon-color-saturate: 1;
+  --icon-color-hue-rotate: 180deg;
+  --icon-color-brightness: 1;
+}
