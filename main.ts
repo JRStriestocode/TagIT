@@ -187,6 +187,9 @@ export default class TagItPlugin extends Plugin {
     this.registerEvent(
       this.app.vault.on("rename", () => this.updateFolderIcons())
     );
+
+    // Add this line to update tags when the plugin loads
+    this.app.workspace.onLayoutReady(() => this.updateObsidianTagCache());
   }
 
   onunload() {
@@ -243,6 +246,7 @@ export default class TagItPlugin extends Plugin {
     this.folderTags[folderPath] = tags;
     this.saveFolderTags();
     this.updateFolderIcons();
+    this.updateObsidianTagCache(); // Add this line
   }
 
   getFolderTags(folderPath: string): string[] {
@@ -272,6 +276,7 @@ export default class TagItPlugin extends Plugin {
       const folderTags = this.getFolderTagsWithInheritance(folder.path);
       if (folderTags.length > 0) {
         await this.addTagsToFile(file, folderTags);
+        this.updateObsidianTagCache(); // Add this line
       }
     }
   }
@@ -297,6 +302,7 @@ export default class TagItPlugin extends Plugin {
 
       // Remove old folder tags and add new folder tags
       await this.updateFileTags(file, oldFolderTags, newFolderTags);
+      this.updateObsidianTagCache(); // Add this line
 
       new Notice(`Updated tags for file: ${file.name}`);
     } else {
@@ -630,6 +636,31 @@ export default class TagItPlugin extends Plugin {
         }
       }
     }
+  }
+
+  // Add this new method
+  async updateObsidianTagCache() {
+    const metadataCache = this.app.metadataCache;
+    const allTags = this.getAllFolderTags();
+
+    for (const tag of allTags) {
+      // Add each folder tag to Obsidian's tag cache
+      if (!metadataCache.getTags()[tag]) {
+        metadataCache.trigger("create-tag", tag);
+      }
+    }
+
+    // Refresh the tag pane
+    this.app.workspace.trigger("tags-updated");
+  }
+
+  // Add this new method
+  getAllFolderTags(): string[] {
+    const allTags = new Set<string>();
+    for (const tags of Object.values(this.folderTags)) {
+      tags.forEach((tag) => allTags.add(tag));
+    }
+    return Array.from(allTags);
   }
 }
 
