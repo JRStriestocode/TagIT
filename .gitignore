@@ -16,3 +16,6 @@ main.js
 *.njsproj
 *.sln
 *.sw?
+
+# private files
+copy-to-vault.js

@@ -1,0 +1,20 @@
+.tag-container {
+  margin-bottom: 1em;
+}
+
+.tag {
+  display: inline-block;
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  padding: 2px 6px;
+  margin: 2px;
+  border-radius: 4px;
+}
+
+.tag button {
+  background: none;
+  border: none;
+  color: var(--text-on-accent);
+  margin-left: 4px;
+  cursor: pointer;
+}
