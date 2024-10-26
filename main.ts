@@ -576,11 +576,18 @@ export default class TagItPlugin extends Plugin {
         tags = [...new Set([...tags, ...this.getFolderTags(currentPath)])];
       }
 
-      if (this.settings.inheritanceMode === "immediate") {
+      if (
+        this.settings.inheritanceMode === "immediate" &&
+        currentPath !== folderPath
+      ) {
         break;
       }
 
-      currentPath = currentPath.substring(0, currentPath.lastIndexOf("/"));
+      const parentPath = currentPath.substring(0, currentPath.lastIndexOf("/"));
+      if (parentPath === currentPath) {
+        break; // We've reached the root
+      }
+      currentPath = parentPath;
     }
 
     return tags;
