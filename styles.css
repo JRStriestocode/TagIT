@@ -45,3 +45,38 @@ body {
   --icon-color-hue-rotate: 180deg;
   --icon-color-brightness: 1;
 }
+
+.tagit-setting-item {
+  border-top: 1px solid var(--background-modifier-border);
+  padding: 18px 0;
+}
+
+.tagit-setting-item:first-child {
+  border-top: none;
+}
+
+.tagit-setting-item .setting-item-control {
+  justify-content: flex-end;
+  padding-top: 0;
+}
+
+.tagit-modal {
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.tagit-modal input[type="text"],
+.tagit-modal textarea {
+  background-color: var(--background-secondary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.tagit-modal button {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.tagit-modal button:hover {
+  background-color: var(--interactive-accent-hover);
+}

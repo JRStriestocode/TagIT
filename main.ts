@@ -11,20 +11,23 @@ import {
 } from "obsidian";
 
 interface TagItSettings {
-  mySetting: string;
   inheritanceMode: "none" | "immediate" | "all";
   excludedFolders: string[];
-}
-
-interface FolderTags {
-  [folderPath: string]: string[];
+  showFolderIcons: boolean;
+  autoApplyTags: boolean;
+  debugMode: boolean;
 }
 
 const DEFAULT_SETTINGS: TagItSettings = {
-  mySetting: "default",
   inheritanceMode: "immediate",
   excludedFolders: [],
+  showFolderIcons: true,
+  autoApplyTags: true,
+  debugMode: false,
 };
+
+// Add this type definition
+type FolderTags = { [folderPath: string]: string[] };
 
 export default class TagItPlugin extends Plugin {
   settings: TagItSettings;
@@ -197,6 +200,13 @@ export default class TagItPlugin extends Plugin {
 
     // Add this line to update tags when the plugin loads
     this.app.workspace.onLayoutReady(() => this.updateObsidianTagCache());
+
+    // Update folder icons based on the showFolderIcons setting
+    this.app.workspace.onLayoutReady(() => {
+      if (this.settings.showFolderIcons) {
+        this.updateFolderIcons();
+      }
+    });
   }
 
   onunload() {
@@ -271,12 +281,16 @@ export default class TagItPlugin extends Plugin {
   }
 
   async handleFileCreation(file: TFile) {
+    if (!this.settings.autoApplyTags) {
+      return; // Don't apply tags if the setting is off
+    }
+
     const folder = file.parent;
     if (folder) {
       const folderTags = this.getFolderTagsWithInheritance(folder.path);
       if (folderTags.length > 0) {
         await this.addTagsToFile(file, folderTags);
-        this.updateObsidianTagCache(); // Add this line
+        this.updateObsidianTagCache();
       }
     }
   }
@@ -669,6 +683,27 @@ export default class TagItPlugin extends Plugin {
   }
 
   async updateFolderIcons() {
+    if (!this.settings.showFolderIcons) {
+      // Remove all folder icons if the setting is off
+      this.app.workspace.getLeavesOfType("file-explorer").forEach((leaf) => {
+        const fileExplorerView = leaf.view as any;
+        const fileItems = fileExplorerView.fileItems;
+        for (const [, item] of Object.entries(fileItems)) {
+          if (item && typeof item === "object" && "el" in item) {
+            const folderEl = item.el as HTMLElement;
+            const iconEl = folderEl.querySelector(
+              ".nav-folder-title-content"
+            ) as HTMLElement | null;
+            if (iconEl) {
+              iconEl.removeClass("tagged-folder");
+              iconEl.removeAttribute("aria-label");
+            }
+          }
+        }
+      });
+      return;
+    }
+
     const fileExplorer = this.app.workspace.getLeavesOfType("file-explorer")[0];
     if (!fileExplorer) return;
 
@@ -725,7 +760,7 @@ export default class TagItPlugin extends Plugin {
   getAllFolderTags(): string[] {
     const allTags = new Set<string>();
     for (const tags of Object.values(this.folderTags)) {
-      tags.forEach((tag) => allTags.add(tag));
+      tags.forEach((tag: string) => allTags.add(tag));
     }
     return Array.from(allTags);
   }
@@ -909,6 +944,25 @@ export default class TagItPlugin extends Plugin {
 
   private removeDuplicateTags(tags: string[]): string[] {
     return [...new Set(tags)];
+  }
+
+  removeFolderIcons() {
+    this.app.workspace.getLeavesOfType("file-explorer").forEach((leaf) => {
+      const fileExplorerView = leaf.view as any;
+      const fileItems = fileExplorerView.fileItems;
+      for (const [, item] of Object.entries(fileItems)) {
+        if (item && typeof item === "object" && "el" in item) {
+          const folderEl = item.el as HTMLElement;
+          const iconEl = folderEl.querySelector(
+            ".nav-folder-title-content"
+          ) as HTMLElement | null;
+          if (iconEl) {
+            iconEl.removeClass("tagged-folder");
+            iconEl.removeAttribute("aria-label");
+          }
+        }
+      }
+    });
   }
 }
 
@@ -1105,14 +1159,42 @@ class TagItSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Setting")
-      .setDesc("It's a setting")
-      .addText((text) =>
-        text
-          .setPlaceholder("Enter your setting")
-          .setValue(this.plugin.settings.mySetting)
+      .setName("Show Folder Icons")
+      .setDesc("Display icons next to folders with tags")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.showFolderIcons)
           .onChange(async (value) => {
-            this.plugin.settings.mySetting = value;
+            this.plugin.settings.showFolderIcons = value;
+            await this.plugin.saveSettings();
+            if (value) {
+              this.plugin.updateFolderIcons();
+            } else {
+              this.plugin.removeFolderIcons();
+            }
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Auto-apply Tags")
+      .setDesc("Automatically apply folder tags to new files")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoApplyTags)
+          .onChange(async (value) => {
+            this.plugin.settings.autoApplyTags = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Debug Mode")
+      .setDesc("Enable detailed logging for troubleshooting")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.debugMode)
+          .onChange(async (value) => {
+            this.plugin.settings.debugMode = value;
             await this.plugin.saveSettings();
           })
       );
