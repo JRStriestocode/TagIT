@@ -1,7 +1,7 @@
 # TagIt - Folder Tags Plugin for Obsidian
 
 <p align="center">
-  <img src="TagIT.png" alt="TagIT Logo" width="208" height="84">
+  <img src="TagIT.png" alt="TagIT Logo" width="334.87" height="174.15">
 </p>
 
 [![Release](https://img.shields.io/github/v/release/JRStriestocode/TagIT)](https://github.com/JRStriestocode/TagIT/releases)
