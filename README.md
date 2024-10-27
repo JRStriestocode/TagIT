@@ -1,6 +1,6 @@
 # TagIt - Folder Tags Plugin for Obsidian
 
-<p align="center">
+<p align="left">
   <img src="TagIT.png" alt="TagIT Logo" width="334.87" height="174.15">
 </p>
 
