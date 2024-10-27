@@ -141,6 +141,13 @@ export default class TagItPlugin extends Plugin {
               .setIcon("trash")
               .onClick(() => this.removeFolderTags(file));
           });
+
+          menu.addItem((item) => {
+            item
+              .setTitle("Apply Folder Tags to Notes")
+              .setIcon("file-plus")
+              .onClick(() => this.applyFolderTagsToNotes(file));
+          });
         }
 
         if (file instanceof TFile) {
@@ -359,8 +366,7 @@ export default class TagItPlugin extends Plugin {
 
   updateTagsInContent(content: string, tags: string[]): string {
     if (tags.length === 0) {
-      // If there are no tags, remove the tags section from the frontmatter
-      return this.removeAllTagsFromContent(content);
+      return content;
     }
 
     const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
@@ -379,6 +385,7 @@ export default class TagItPlugin extends Plugin {
         `---\n${updatedFrontmatter}\n---`
       );
     } else {
+      // If no frontmatter exists, add it with the tags
       return `---\ntags:\n${tagSection}\n---\n\n${content}`;
     }
   }
@@ -441,14 +448,20 @@ export default class TagItPlugin extends Plugin {
     const content = await this.app.vault.read(file);
     const fileTags = this.extractTagsFromContent(content);
 
+    console.log(`Extracted tags from file: ${fileTags.join(", ")}`);
+
     if (fileTags.length === 0) {
       new Notice("No tags found in the file");
       return;
     }
 
+    // Get tags only from the immediate parent folder
     const folderTags = this.getFolderTags(folder.path);
     const newTags = [...new Set([...folderTags, ...fileTags])];
     const addedTags = newTags.filter((tag) => !folderTags.includes(tag));
+
+    console.log(`Existing folder tags: ${folderTags.join(", ")}`);
+    console.log(`New tags to add: ${addedTags.join(", ")}`);
 
     if (addedTags.length === 0) {
       new Notice("No new tags to add to the folder");
@@ -477,9 +490,23 @@ export default class TagItPlugin extends Plugin {
 
     if (frontmatterMatch) {
       const frontmatter = frontmatterMatch[1];
-      const yamlTags = frontmatter.match(/tags:\s*\[(.*?)\]/);
+      // Match both array-style and list-style YAML tags
+      const yamlTags = frontmatter.match(/tags:\s*(\[.*?\]|(\n\s*-\s*.+)+)/s);
       if (yamlTags) {
-        tags = yamlTags[1].split(",").map((tag) => tag.trim());
+        const tagContent = yamlTags[1];
+        if (tagContent.startsWith("[")) {
+          // Array-style tags
+          tags = tagContent
+            .slice(1, -1)
+            .split(",")
+            .map((tag) => tag.trim());
+        } else {
+          // List-style tags
+          tags = tagContent
+            .split("\n")
+            .map((line) => line.replace(/^\s*-\s*/, "").trim())
+            .filter((tag) => tag);
+        }
       }
     }
 
@@ -769,6 +796,35 @@ export default class TagItPlugin extends Plugin {
     await this.app.vault.modify(file, updatedContent);
     this.updateObsidianTagCache();
     new Notice(`Tags merged for file: ${file.name}`);
+  }
+
+  async applyFolderTagsToNotes(folder: TFolder) {
+    const folderTags = this.getFolderTags(folder.path);
+    if (folderTags.length === 0) {
+      new Notice("This folder has no tags to apply.");
+      return;
+    }
+
+    const files = folder.children.filter(
+      (child): child is TFile => child instanceof TFile
+    );
+    let updatedCount = 0;
+
+    for (const file of files) {
+      const content = await this.app.vault.read(file);
+      const existingTags = this.extractTagsFromContent(content);
+      const mergedTags = [...new Set([...existingTags, ...folderTags])];
+
+      if (mergedTags.length > existingTags.length) {
+        const updatedContent = this.updateTagsInContent(content, mergedTags);
+        await this.app.vault.modify(file, updatedContent);
+        updatedCount++;
+      }
+    }
+
+    new Notice(
+      `Applied folder tags to ${updatedCount} file(s) in ${folder.name}`
+    );
   }
 }
 
