@@ -80,3 +80,26 @@ body {
 .tagit-modal button:hover {
   background-color: var(--interactive-accent-hover);
 }
+
+/* Add more specific selectors to prevent style conflicts */
+.workspace-leaf-content[data-type="file-explorer"]
+  .nav-folder-title-content.tagged-folder::after {
+  content: "";
+  display: inline-block;
+  /* ... rest of the styles ... */
+}
+
+.tagit-logo-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 2em;
+  padding: 1em;
+}
+
+.tagit-logo-container svg {
+  width: 150px;
+  height: auto;
+  margin-bottom: 1em;
+  color: var(--interactive-accent);
+}
