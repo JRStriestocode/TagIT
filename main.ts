@@ -300,11 +300,15 @@ export default class TagItPlugin extends Plugin {
       console.log(`Old folder tags: ${oldFolderTags.join(", ")}`);
       console.log(`New folder tags: ${newFolderTags.join(", ")}`);
 
-      // Remove old folder tags and add new folder tags
-      await this.updateFileTags(file, oldFolderTags, newFolderTags);
-      this.updateObsidianTagCache(); // Add this line
-
-      new Notice(`Updated tags for file: ${file.name}`);
+      if (oldFolderTags.length > 0 || newFolderTags.length > 0) {
+        new FileMovedModal(
+          this.app,
+          file,
+          oldFolderTags,
+          newFolderTags,
+          this
+        ).open();
+      }
     } else {
       console.log("File not moved between folders or folders are the same");
     }
@@ -312,29 +316,38 @@ export default class TagItPlugin extends Plugin {
 
   async addTagsToFile(file: TFile, tagsToAdd: string[]) {
     const content = await this.app.vault.read(file);
-    const updatedContent = this.addTagsToContent(content, tagsToAdd);
+    const existingTags = this.extractTagsFromContent(content);
+    const updatedTags = [...new Set([...existingTags, ...tagsToAdd])];
+    const updatedContent = this.updateTagsInContent(content, updatedTags);
     await this.app.vault.modify(file, updatedContent);
   }
 
   async updateFileTags(
     file: TFile,
-    tagsToRemove: string[],
-    tagsToAdd: string[]
+    oldFolderTags: string[],
+    newFolderTags: string[]
   ) {
     console.log(`Updating tags for file: ${file.name}`);
-    console.log(`Tags to remove: ${tagsToRemove.join(", ")}`);
-    console.log(`Tags to add: ${tagsToAdd.join(", ")}`);
+    console.log(`Old folder tags: ${oldFolderTags.join(", ")}`);
+    console.log(`New folder tags: ${newFolderTags.join(", ")}`);
 
     const content = await this.app.vault.read(file);
-    let updatedContent = content;
+    const existingTags = this.extractTagsFromContent(content);
 
-    if (tagsToRemove.length > 0) {
-      updatedContent = this.removeTagsFromContent(updatedContent, tagsToRemove);
-    }
+    console.log(`Existing tags: ${existingTags.join(", ")}`);
 
-    if (tagsToAdd.length > 0) {
-      updatedContent = this.addTagsToContent(updatedContent, tagsToAdd);
-    }
+    // Remove old folder tags and keep manual tags
+    const manualTags = existingTags.filter(
+      (tag) => !oldFolderTags.includes(tag)
+    );
+
+    // Add new folder tags
+    const updatedTags = [...new Set([...manualTags, ...newFolderTags])];
+
+    console.log(`Manual tags: ${manualTags.join(", ")}`);
+    console.log(`Updated tags: ${updatedTags.join(", ")}`);
+
+    const updatedContent = this.updateTagsInContent(content, updatedTags);
 
     if (content !== updatedContent) {
       await this.app.vault.modify(file, updatedContent);
@@ -344,36 +357,50 @@ export default class TagItPlugin extends Plugin {
     }
   }
 
-  addTagsToContent(content: string, tagsToAdd: string[]): string {
+  updateTagsInContent(content: string, tags: string[]): string {
+    if (tags.length === 0) {
+      // If there are no tags, remove the tags section from the frontmatter
+      return this.removeAllTagsFromContent(content);
+    }
+
+    const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
+    const frontmatterMatch = content.match(frontmatterRegex);
+
+    const tagSection = tags.map((tag) => `  - ${tag}`).join("\n");
+
+    if (frontmatterMatch) {
+      const frontmatter = frontmatterMatch[1];
+      const updatedFrontmatter = frontmatter.replace(
+        /tags:[\s\S]*?(\n|$)/,
+        `tags:\n${tagSection}\n`
+      );
+      return content.replace(
+        frontmatterRegex,
+        `---\n${updatedFrontmatter}\n---`
+      );
+    } else {
+      return `---\ntags:\n${tagSection}\n---\n\n${content}`;
+    }
+  }
+
+  addTagsToContent(content: string, tags: string[]): string {
+    if (tags.length === 0) {
+      return content;
+    }
+
+    const tagSection = tags.map((tag) => `  - ${tag}`).join("\n");
     const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
     const frontmatterMatch = content.match(frontmatterRegex);
 
     if (frontmatterMatch) {
       const frontmatter = frontmatterMatch[1];
-      const existingTags = frontmatter.match(/tags:\s*\[(.*?)\]/);
-
-      if (existingTags) {
-        const currentTags = existingTags[1].split(",").map((tag) => tag.trim());
-        const newTags = [...new Set([...currentTags, ...tagsToAdd])];
-        const updatedFrontmatter = frontmatter.replace(
-          /tags:\s*\[.*?\]/,
-          `tags: [${newTags.join(", ")}]`
-        );
-        return content.replace(
-          frontmatterRegex,
-          `---\n${updatedFrontmatter}\n---`
-        );
-      } else {
-        const updatedFrontmatter = `${frontmatter}\ntags: [${tagsToAdd.join(
-          ", "
-        )}]`;
-        return content.replace(
-          frontmatterRegex,
-          `---\n${updatedFrontmatter}\n---`
-        );
-      }
+      const updatedFrontmatter = `${frontmatter.trim()}\ntags:\n${tagSection}`;
+      return content.replace(
+        frontmatterRegex,
+        `---\n${updatedFrontmatter}\n---`
+      );
     } else {
-      return `---\ntags: [${tagsToAdd.join(", ")}]\n---\n\n${content}`;
+      return `---\ntags:\n${tagSection}\n---\n\n${content}`;
     }
   }
 
@@ -645,9 +672,7 @@ export default class TagItPlugin extends Plugin {
 
     for (const tag of allTags) {
       // Add each folder tag to Obsidian's tag cache
-      if (!metadataCache.getTags()[tag]) {
-        metadataCache.trigger("create-tag", tag);
-      }
+      metadataCache.trigger("create-tag", tag);
     }
 
     // Refresh the tag pane
@@ -661,6 +686,89 @@ export default class TagItPlugin extends Plugin {
       tags.forEach((tag) => allTags.add(tag));
     }
     return Array.from(allTags);
+  }
+
+  async replaceAllTags(file: TFile, newTags: string[]) {
+    console.log(`Replacing all tags for file: ${file.name}`);
+    console.log(`New tags: ${newTags.join(", ")}`);
+
+    const content = await this.app.vault.read(file);
+
+    // Remove all existing tags from the content
+    let updatedContent = this.removeAllTagsFromContent(content);
+
+    // Add new tags
+    if (newTags.length > 0) {
+      const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
+      const frontmatterMatch = updatedContent.match(frontmatterRegex);
+
+      if (frontmatterMatch) {
+        const frontmatter = frontmatterMatch[1];
+        const newTagsSection = `tags:\n${newTags
+          .map((tag) => `  - ${tag}`)
+          .join("\n")}`;
+        const updatedFrontmatter = `${frontmatter.trim()}\n${newTagsSection}`;
+        updatedContent = updatedContent.replace(
+          frontmatterRegex,
+          `---\n${updatedFrontmatter}\n---`
+        );
+      } else {
+        const newTagsSection = `tags:\n${newTags
+          .map((tag) => `  - ${tag}`)
+          .join("\n")}`;
+        updatedContent = `---\n${newTagsSection}\n---\n\n${updatedContent}`;
+      }
+    }
+
+    await this.app.vault.modify(file, updatedContent);
+    this.updateObsidianTagCache();
+    new Notice(`Tags replaced for file: ${file.name}`);
+  }
+
+  removeAllTagsFromContent(content: string): string {
+    const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
+    const frontmatterMatch = content.match(frontmatterRegex);
+
+    if (frontmatterMatch) {
+      let frontmatter = frontmatterMatch[1];
+      // Remove both list-style and array-style tag declarations
+      frontmatter = frontmatter.replace(/^tags:[\s\S]*?(\n[^\s]|\n$)/m, "$1");
+      frontmatter = frontmatter.replace(/^- .*\n?/gm, "");
+      frontmatter = frontmatter.trim();
+
+      if (frontmatter) {
+        return content.replace(frontmatterRegex, `---\n${frontmatter}\n---`);
+      } else {
+        // If frontmatter is empty after removing tags, remove the entire frontmatter
+        return content.replace(frontmatterRegex, "");
+      }
+    }
+
+    return content;
+  }
+
+  async mergeTags(file: TFile, oldTags: string[], newTags: string[]) {
+    console.log(`Merging tags for file: ${file.name}`);
+    console.log(`Old tags: ${oldTags.join(", ")}`);
+    console.log(`New tags: ${newTags.join(", ")}`);
+
+    const content = await this.app.vault.read(file);
+    const existingTags = this.extractTagsFromContent(content);
+
+    console.log(`Existing tags: ${existingTags.join(", ")}`);
+
+    // Keep all existing tags that are not old folder tags
+    const tagsToKeep = existingTags.filter((tag) => !oldTags.includes(tag));
+
+    // Merge existing tags with new folder tags
+    const mergedTags = [...new Set([...tagsToKeep, ...newTags])];
+
+    console.log(`Merged tags: ${mergedTags.join(", ")}`);
+
+    const updatedContent = this.updateTagsInContent(content, mergedTags);
+    await this.app.vault.modify(file, updatedContent);
+    this.updateObsidianTagCache();
+    new Notice(`Tags merged for file: ${file.name}`);
   }
 }
 
@@ -955,6 +1063,69 @@ class TagSelectionModal extends Modal {
           .onClick(() => {
             this.close();
             this.onConfirm(this.tags);
+          })
+      );
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+class FileMovedModal extends Modal {
+  file: TFile;
+  oldTags: string[];
+  newTags: string[];
+  plugin: TagItPlugin;
+
+  constructor(
+    app: App,
+    file: TFile,
+    oldTags: string[],
+    newTags: string[],
+    plugin: TagItPlugin
+  ) {
+    super(app);
+    this.file = file;
+    this.oldTags = oldTags;
+    this.newTags = newTags;
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h2", { text: "File Moved" });
+    contentEl.createEl("p", {
+      text: `File "${this.file.name}" has been moved.`,
+    });
+    contentEl.createEl("p", { text: "How would you like to handle the tags?" });
+
+    new Setting(contentEl)
+      .setName("Replace All")
+      .setDesc("Replace all existing tags with new folder tags")
+      .addButton((btn) =>
+        btn
+          .setButtonText("Replace All")
+          .setCta()
+          .onClick(() => {
+            this.plugin.replaceAllTags(this.file, this.newTags);
+            this.close();
+          })
+      );
+
+    new Setting(contentEl)
+      .setName("Merge")
+      .setDesc("Keep existing tags and add new folder tags")
+      .addButton((btn) =>
+        btn
+          .setButtonText("Merge")
+          .setCta()
+          .onClick(() => {
+            this.plugin.mergeTags(this.file, this.oldTags, this.newTags);
+            this.close();
           })
       );
   }
