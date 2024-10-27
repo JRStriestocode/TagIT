@@ -180,7 +180,6 @@
 11. **Enhanced User Interface Elements**
 
     - **Description**: Improve UI components for better user experience.
-      - Drag-and-drop tags in the modal.
       - Dedicated settings tab.
       - Theme compatibility (light/dark modes).
     - **Implementation**:
