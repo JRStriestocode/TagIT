@@ -2,8 +2,8 @@
 node_modules/
 
 # Build output
-main.js
-*.js.map
+/main.js
+
 
 # macOS
 .DS_Store
