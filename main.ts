@@ -52,7 +52,7 @@ export default class TagItPlugin extends Plugin {
       this.registerEvent(
         this.app.vault.on("create", (file) => {
           if (file instanceof TFolder) {
-            this.queueNewFolder(file);
+            this.handleFolderCreation(file);
           } else if (file instanceof TFile) {
             this.handleFileCreation(file);
           }
@@ -237,23 +237,16 @@ export default class TagItPlugin extends Plugin {
 
   private handleFolderCreation(folder: TFolder) {
     if (!this.isInitialLoad) {
-      // Ensure we have the most up-to-date folder object
-      const updatedFolder = this.app.vault.getAbstractFileByPath(folder.path);
-      if (updatedFolder instanceof TFolder) {
-        new FolderTagModal(this.app, updatedFolder, this, true).open();
-      } else {
-        console.error(
-          `Failed to get updated folder object for path: ${folder.path}`
-        );
-      }
+      new FolderTagModal(this.app, folder, this, true).open();
     }
   }
 
   setFolderTags(folderPath: string, tags: string[]) {
-    this.folderTags[folderPath] = tags;
+    const uniqueTags = this.removeDuplicateTags(tags);
+    this.folderTags[folderPath] = uniqueTags;
     this.saveFolderTags();
     this.updateFolderIcons();
-    this.updateObsidianTagCache(); // Add this line
+    this.updateObsidianTagCache();
   }
 
   getFolderTags(folderPath: string): string[] {
@@ -304,17 +297,35 @@ export default class TagItPlugin extends Plugin {
         newFolder?.path || ""
       );
 
-      console.log(`Old folder tags: ${oldFolderTags.join(", ")}`);
-      console.log(`New folder tags: ${newFolderTags.join(", ")}`);
+      // Only proceed if the tags are different
+      if (
+        JSON.stringify(oldFolderTags.sort()) !==
+        JSON.stringify(newFolderTags.sort())
+      ) {
+        console.log(`Old folder tags: ${oldFolderTags.join(", ")}`);
+        console.log(`New folder tags: ${newFolderTags.join(", ")}`);
 
-      if (oldFolderTags.length > 0 || newFolderTags.length > 0) {
-        new FileMovedModal(
-          this.app,
-          file,
-          oldFolderTags,
-          newFolderTags,
-          this
-        ).open();
+        const conflictingTags = this.detectConflictingTags(file);
+        console.log(`Conflicting tags: ${conflictingTags.join(", ")}`);
+
+        if (conflictingTags.length > 0) {
+          new ConflictResolutionModal(
+            this.app,
+            file,
+            conflictingTags,
+            this
+          ).open();
+        } else {
+          new FileMovedModal(
+            this.app,
+            file,
+            oldFolderTags,
+            newFolderTags,
+            this
+          ).open();
+        }
+      } else {
+        console.log("Folder tags are the same, no update needed");
       }
     } else {
       console.log("File not moved between folders or folders are the same");
@@ -324,9 +335,12 @@ export default class TagItPlugin extends Plugin {
   async addTagsToFile(file: TFile, tagsToAdd: string[]) {
     const content = await this.app.vault.read(file);
     const existingTags = this.extractTagsFromContent(content);
-    const updatedTags = [...new Set([...existingTags, ...tagsToAdd])];
-    const updatedContent = this.updateTagsInContent(content, updatedTags);
-    await this.app.vault.modify(file, updatedContent);
+    const allTags = this.removeDuplicateTags([...existingTags, ...tagsToAdd]);
+    const updatedContent = this.updateTagsInContent(content, allTags);
+    if (content !== updatedContent) {
+      await this.app.vault.modify(file, updatedContent);
+      this.updateObsidianTagCache();
+    }
   }
 
   async updateFileTags(
@@ -365,14 +379,16 @@ export default class TagItPlugin extends Plugin {
   }
 
   updateTagsInContent(content: string, tags: string[]): string {
-    if (tags.length === 0) {
-      return content;
+    const uniqueTags = [...new Set(tags)];
+
+    if (uniqueTags.length === 0) {
+      return this.removeYamlFrontMatter(content);
     }
 
     const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
     const frontmatterMatch = content.match(frontmatterRegex);
 
-    const tagSection = tags.map((tag) => `  - ${tag}`).join("\n");
+    const tagSection = uniqueTags.map((tag) => `  - ${tag}`).join("\n");
 
     if (frontmatterMatch) {
       const frontmatter = frontmatterMatch[1];
@@ -385,7 +401,6 @@ export default class TagItPlugin extends Plugin {
         `---\n${updatedFrontmatter}\n---`
       );
     } else {
-      // If no frontmatter exists, add it with the tags
       return `---\ntags:\n${tagSection}\n---\n\n${content}`;
     }
   }
@@ -491,7 +506,7 @@ export default class TagItPlugin extends Plugin {
     if (frontmatterMatch) {
       const frontmatter = frontmatterMatch[1];
       // Match both array-style and list-style YAML tags
-      const yamlTags = frontmatter.match(/tags:\s*(\[.*?\]|(\n\s*-\s*.+)+)/s);
+      const yamlTags = frontmatter.match(/tags:\s*(\[.*?\]|(\n\s*-\s*.+)+)/);
       if (yamlTags) {
         const tagContent = yamlTags[1];
         if (tagContent.startsWith("[")) {
@@ -784,18 +799,24 @@ export default class TagItPlugin extends Plugin {
 
     console.log(`Existing tags: ${existingTags.join(", ")}`);
 
-    // Keep all existing tags that are not old folder tags
-    const tagsToKeep = existingTags.filter((tag) => !oldTags.includes(tag));
+    // Remove old folder tags
+    const manualTags = existingTags.filter((tag) => !oldTags.includes(tag));
 
-    // Merge existing tags with new folder tags
-    const mergedTags = [...new Set([...tagsToKeep, ...newTags])];
+    // Merge manual tags with new folder tags, ensuring no duplicates
+    const mergedTags = [...new Set([...manualTags, ...newTags])];
 
     console.log(`Merged tags: ${mergedTags.join(", ")}`);
 
-    const updatedContent = this.updateTagsInContent(content, mergedTags);
-    await this.app.vault.modify(file, updatedContent);
-    this.updateObsidianTagCache();
-    new Notice(`Tags merged for file: ${file.name}`);
+    if (
+      JSON.stringify(existingTags.sort()) !== JSON.stringify(mergedTags.sort())
+    ) {
+      const updatedContent = this.updateTagsInContent(content, mergedTags);
+      await this.app.vault.modify(file, updatedContent);
+      this.updateObsidianTagCache();
+      new Notice(`Tags merged for file: ${file.name}`);
+    } else {
+      console.log(`No changes needed for file: ${file.name}`);
+    }
   }
 
   async applyFolderTagsToNotes(folder: TFolder) {
@@ -825,6 +846,69 @@ export default class TagItPlugin extends Plugin {
     new Notice(
       `Applied folder tags to ${updatedCount} file(s) in ${folder.name}`
     );
+  }
+
+  async removeTagsFromFile(file: TFile, tagsToRemove: string[]) {
+    console.log(`Removing folder tags from file: ${file.name}`);
+    console.log(`Tags to remove: ${tagsToRemove.join(", ")}`);
+
+    const content = await this.app.vault.read(file);
+    const existingTags = this.extractTagsFromContent(content);
+
+    console.log(`Existing tags: ${existingTags.join(", ")}`);
+
+    // Keep all tags that are not in tagsToRemove
+    const updatedTags = existingTags.filter(
+      (tag) => !tagsToRemove.includes(tag)
+    );
+
+    console.log(`Updated tags: ${updatedTags.join(", ")}`);
+
+    // Use updateTagsInContent to update the file's content
+    let updatedContent: string;
+    if (updatedTags.length > 0) {
+      updatedContent = this.updateTagsInContent(content, updatedTags);
+    } else {
+      // If no tags remain, remove the entire YAML front matter
+      updatedContent = this.removeYamlFrontMatter(content);
+    }
+
+    // Only modify the file if the content has changed
+    if (content !== updatedContent) {
+      await this.app.vault.modify(file, updatedContent);
+      console.log(`Updated content for file: ${file.name}`);
+      this.updateObsidianTagCache();
+      new Notice(`Removed folder tags from file: ${file.name}`);
+    } else {
+      console.log(`No changes needed for file: ${file.name}`);
+    }
+  }
+
+  removeYamlFrontMatter(content: string): string {
+    const frontmatterRegex = /^---\n[\s\S]*?\n---\n/;
+    return content.replace(frontmatterRegex, "");
+  }
+
+  detectConflictingTags(file: TFile): string[] {
+    const parentFolders = this.getParentFolders(file);
+    const allTags = parentFolders.flatMap((folder) =>
+      this.getFolderTags(folder.path)
+    );
+    return allTags.filter((tag, index, self) => self.indexOf(tag) !== index);
+  }
+
+  getParentFolders(file: TFile): TFolder[] {
+    const folders: TFolder[] = [];
+    let currentFolder = file.parent;
+    while (currentFolder) {
+      folders.push(currentFolder);
+      currentFolder = currentFolder.parent;
+    }
+    return folders;
+  }
+
+  private removeDuplicateTags(tags: string[]): string[] {
+    return [...new Set(tags)];
   }
 }
 
@@ -1184,6 +1268,122 @@ class FileMovedModal extends Modal {
             this.close();
           })
       );
+
+    new Setting(contentEl)
+      .setName("No Action")
+      .setDesc("Keep tags as they are")
+      .addButton((btn) =>
+        btn.setButtonText("No Action").onClick(() => {
+          this.close();
+        })
+      );
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+class ConflictResolutionModal extends Modal {
+  file: TFile;
+  conflictingTags: string[];
+  plugin: TagItPlugin;
+
+  constructor(
+    app: App,
+    file: TFile,
+    conflictingTags: string[],
+    plugin: TagItPlugin
+  ) {
+    super(app);
+    this.file = file;
+    this.conflictingTags = conflictingTags;
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h2", { text: "Tag Conflict Detected" });
+    contentEl.createEl("p", {
+      text: `The following tags are assigned by multiple parent folders:`,
+    });
+
+    const tagList = contentEl.createEl("ul");
+    this.conflictingTags.forEach((tag) => {
+      tagList.createEl("li", { text: tag });
+    });
+
+    contentEl.createEl("p", {
+      text: "How would you like to handle these conflicts?",
+    });
+
+    new Setting(contentEl)
+      .setName("Keep All")
+      .setDesc("Keep all instances of conflicting tags")
+      .addButton((btn) =>
+        btn
+          .setButtonText("Keep All")
+          .setCta()
+          .onClick(() => {
+            this.resolveConflict("keepAll");
+          })
+      );
+
+    new Setting(contentEl)
+      .setName("Keep One")
+      .setDesc("Keep only one instance of each conflicting tag")
+      .addButton((btn) =>
+        btn
+          .setButtonText("Keep One")
+          .setCta()
+          .onClick(() => {
+            this.resolveConflict("keepOne");
+          })
+      );
+
+    new Setting(contentEl)
+      .setName("Remove All")
+      .setDesc("Remove all instances of conflicting tags")
+      .addButton((btn) =>
+        btn
+          .setButtonText("Remove All")
+          .setCta()
+          .onClick(() => {
+            this.resolveConflict("removeAll");
+          })
+      );
+  }
+
+  async resolveConflict(resolution: "keepAll" | "keepOne" | "removeAll") {
+    const content = await this.plugin.app.vault.read(this.file);
+    const existingTags = this.plugin.extractTagsFromContent(content);
+    let updatedTags: string[];
+
+    switch (resolution) {
+      case "keepAll":
+        updatedTags = existingTags;
+        break;
+      case "keepOne":
+        updatedTags = [...new Set(existingTags)];
+        break;
+      case "removeAll":
+        updatedTags = existingTags.filter(
+          (tag) => !this.conflictingTags.includes(tag)
+        );
+        break;
+    }
+
+    const updatedContent = this.plugin.updateTagsInContent(
+      content,
+      updatedTags
+    );
+    await this.plugin.app.vault.modify(this.file, updatedContent);
+    this.plugin.updateObsidianTagCache();
+    new Notice(`Resolved tag conflicts for file: ${this.file.name}`);
+    this.close();
   }
 
   onClose() {
