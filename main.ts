@@ -20,6 +20,7 @@ interface TagItSettings {
   autoApplyTags: boolean;
   debugMode: boolean;
   showBatchConversionWarning: boolean;
+  showNewFolderModal: boolean;
 }
 
 const DEFAULT_SETTINGS: TagItSettings = {
@@ -29,6 +30,7 @@ const DEFAULT_SETTINGS: TagItSettings = {
   autoApplyTags: true,
   debugMode: false,
   showBatchConversionWarning: true,
+  showNewFolderModal: true,
 };
 
 // Add this type definition
@@ -265,7 +267,7 @@ export default class TagItPlugin extends Plugin {
   }
 
   private handleFolderCreation(folder: TFolder) {
-    if (!this.isInitialLoad) {
+    if (!this.isInitialLoad && this.settings.showNewFolderModal) {
       new FolderTagModal(this.app, folder, this, true).open();
     }
   }
@@ -1508,6 +1510,18 @@ class TagItSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
           new Notice("Batch conversion warning has been re-enabled");
         })
+      );
+
+    new Setting(containerEl)
+      .setName("New Folder Modal")
+      .setDesc("Show tag modal when creating new folders")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.showNewFolderModal)
+          .onChange(async (value) => {
+            this.plugin.settings.showNewFolderModal = value;
+            await this.plugin.saveSettings();
+          })
       );
   }
 }
