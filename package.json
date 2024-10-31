@@ -1,6 +1,6 @@
 {
   "name": "obsidian-tagit",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Enhance your note-taking experience by associating YAML tags with folders in Obsidian.",
   "main": "main.js",
   "scripts": {

@@ -45,6 +45,14 @@
 - Enhanced 'Convert Inline Tags to YAML' feature with user confirmation
 - Improved handling of existing tags when applying folder tags
 
+## Version 1.0.1
+
+### Bug Fixes
+
+- Fixed issue where duplicate tags would appear when using 'Apply Folder Tags to Notes' after updating folder tags
+- Improved handling of manual tags vs folder tags
+- Enhanced tag deduplication logic
+
 ## Implementation Details
 
 ### Tag Inheritance
