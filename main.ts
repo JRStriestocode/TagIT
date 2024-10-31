@@ -152,19 +152,28 @@ export default class TagItPlugin extends Plugin {
       this.app.workspace.on(
         "file-menu",
         (menu: Menu, file: TAbstractFile, source: string) => {
-          if (file instanceof TFile && file.extension.toLowerCase() === "md") {
+          if (file instanceof TFolder) {
             menu.addItem((item: MenuItem) => {
               item
-                .setTitle("Convert to YAML")
+                .setTitle("Add/Edit Folder Tags")
                 .setIcon("tag")
-                .onClick(() => {
-                  this.batchConvertWithConfirmation([file]);
-                });
+                .onClick(() => this.openFolderTagModal(file));
             });
-          }
 
-          // Add folder conversion option
-          if (file instanceof TFolder) {
+            menu.addItem((item: MenuItem) => {
+              item
+                .setTitle("Remove All Folder Tags")
+                .setIcon("trash")
+                .onClick(() => this.removeFolderTags(file));
+            });
+
+            menu.addItem((item: MenuItem) => {
+              item
+                .setTitle("Apply Folder Tags to Notes")
+                .setIcon("file-plus")
+                .onClick(() => this.applyFolderTagsToNotes(file));
+            });
+
             menu.addItem((item: MenuItem) => {
               item
                 .setTitle("Convert All Notes to YAML")
@@ -176,6 +185,31 @@ export default class TagItPlugin extends Plugin {
                       child.extension.toLowerCase() === "md"
                   );
                   this.batchConvertWithConfirmation(files);
+                });
+            });
+
+            menu.addItem((item: MenuItem) => {
+              item
+                .setTitle("Check for Duplicate Tags")
+                .setIcon("search")
+                .onClick(() => this.checkAndRemoveDuplicateTags(file));
+            });
+          }
+
+          if (file instanceof TFile && file.extension.toLowerCase() === "md") {
+            menu.addItem((item: MenuItem) => {
+              item
+                .setTitle("Apply Tags to Folder")
+                .setIcon("tag")
+                .onClick(() => this.applyFileTagsToFolder(file));
+            });
+
+            menu.addItem((item: MenuItem) => {
+              item
+                .setTitle("Convert to YAML")
+                .setIcon("tag")
+                .onClick(() => {
+                  this.batchConvertWithConfirmation([file]);
                 });
             });
           }
