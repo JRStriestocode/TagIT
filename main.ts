@@ -8,6 +8,9 @@ import {
   Modal,
   TextComponent,
   Notice,
+  TAbstractFile,
+  Menu,
+  MenuItem,
 } from "obsidian";
 
 interface TagItSettings {
@@ -16,6 +19,7 @@ interface TagItSettings {
   showFolderIcons: boolean;
   autoApplyTags: boolean;
   debugMode: boolean;
+  showBatchConversionWarning: boolean;
 }
 
 const DEFAULT_SETTINGS: TagItSettings = {
@@ -24,6 +28,7 @@ const DEFAULT_SETTINGS: TagItSettings = {
   showFolderIcons: true,
   autoApplyTags: true,
   debugMode: false,
+  showBatchConversionWarning: true,
 };
 
 // Add this type definition
@@ -142,53 +147,38 @@ export default class TagItPlugin extends Plugin {
 
     // Register context menu events
     this.registerEvent(
-      this.app.workspace.on("file-menu", (menu, file) => {
-        if (file instanceof TFolder) {
-          menu.addItem((item) => {
-            item
-              .setTitle("Add/Edit Folder Tags")
-              .setIcon("tag")
-              .onClick(() => this.openFolderTagModal(file));
-          });
+      this.app.workspace.on(
+        "file-menu",
+        (menu: Menu, file: TAbstractFile, source: string) => {
+          if (file instanceof TFile && file.extension.toLowerCase() === "md") {
+            menu.addItem((item: MenuItem) => {
+              item
+                .setTitle("Convert to YAML")
+                .setIcon("tag")
+                .onClick(() => {
+                  this.batchConvertWithConfirmation([file]);
+                });
+            });
+          }
 
-          menu.addItem((item) => {
-            item
-              .setTitle("Remove All Folder Tags")
-              .setIcon("trash")
-              .onClick(() => this.removeFolderTags(file));
-          });
-
-          menu.addItem((item) => {
-            item
-              .setTitle("Apply Folder Tags to Notes")
-              .setIcon("file-plus")
-              .onClick(() => this.applyFolderTagsToNotes(file));
-          });
-
-          menu.addItem((item) => {
-            item
-              .setTitle("Check for Duplicate Tags")
-              .setIcon("search")
-              .onClick(() => this.checkAndRemoveDuplicateTags(file));
-          });
+          // Add folder conversion option
+          if (file instanceof TFolder) {
+            menu.addItem((item: MenuItem) => {
+              item
+                .setTitle("Convert All Notes to YAML")
+                .setIcon("tag")
+                .onClick(() => {
+                  const files = file.children.filter(
+                    (child: TAbstractFile): child is TFile =>
+                      child instanceof TFile &&
+                      child.extension.toLowerCase() === "md"
+                  );
+                  this.batchConvertWithConfirmation(files);
+                });
+            });
+          }
         }
-
-        if (file instanceof TFile) {
-          menu.addItem((item) => {
-            item
-              .setTitle("Apply Tags to Folder")
-              .setIcon("tag")
-              .onClick(() => this.applyFileTagsToFolder(file));
-          });
-
-          menu.addItem((item) => {
-            item
-              .setTitle("Convert Inline Tags to YAML")
-              .setIcon("tag")
-              .onClick(() => this.convertInlineTagsToYAML(file));
-          });
-        }
-      })
+      )
     );
 
     // This adds a settings tab so the user can configure various aspects of the plugin
@@ -1154,6 +1144,109 @@ export default class TagItPlugin extends Plugin {
       new Notice(`No duplicates found in ${processedCount} files.`);
     }
   }
+
+  async batchConvertInlineTagsToYAML(files: TFile[]): Promise<void> {
+    let processedCount = 0;
+    let successCount = 0;
+    let errorCount = 0;
+    const errors: string[] = [];
+
+    for (const file of files) {
+      try {
+        if (file.extension.toLowerCase() !== "md") {
+          continue;
+        }
+
+        console.log(`Processing file: ${file.name}`);
+        const content = await this.app.vault.read(file);
+
+        // Skip YAML front matter if it exists
+        const frontmatterRegex = /^---\n[\s\S]*?\n---\n/;
+        const frontmatterMatch = content.match(frontmatterRegex);
+        const contentWithoutYaml = frontmatterMatch
+          ? content.slice(frontmatterMatch[0].length)
+          : content;
+
+        // Get first three lines after YAML
+        const firstThreeLines = contentWithoutYaml.split("\n", 3).join("\n");
+        const inlineTags = firstThreeLines.match(/#[^\s#]+/g);
+
+        if (!inlineTags) {
+          console.log(
+            `No inline tags found in first three lines of: ${file.name}`
+          );
+          continue;
+        }
+
+        const newTags = inlineTags.map((tag) => tag.substring(1));
+        const existingTags = this.extractTagsFromContent(content);
+        const allTags = [...new Set([...existingTags, ...newTags])];
+
+        // Remove inline tags from first three lines while preserving YAML
+        let updatedContent = content;
+        if (frontmatterMatch) {
+          const contentLines = contentWithoutYaml.split("\n");
+          for (let i = 0; i < Math.min(3, contentLines.length); i++) {
+            contentLines[i] = contentLines[i].replace(/#[^\s#]+/g, "").trim();
+          }
+          updatedContent =
+            frontmatterMatch[0] + this.cleanEmptyLines(contentLines.join("\n"));
+        } else {
+          const contentLines = content.split("\n");
+          for (let i = 0; i < Math.min(3, contentLines.length); i++) {
+            contentLines[i] = contentLines[i].replace(/#[^\s#]+/g, "").trim();
+          }
+          updatedContent = this.cleanEmptyLines(contentLines.join("\n"));
+        }
+
+        // Add tags to YAML front matter
+        updatedContent = this.updateTagsInContent(updatedContent, allTags);
+        await this.app.vault.modify(file, updatedContent);
+
+        successCount++;
+        console.log(`Successfully converted tags in: ${file.name}`);
+      } catch (error) {
+        console.error(`Error processing file ${file.name}:`, error);
+        errorCount++;
+        errors.push(file.name);
+      }
+      processedCount++;
+    }
+
+    // Show summary popup
+    new BatchConversionResultModal(
+      this.app,
+      processedCount,
+      successCount,
+      errorCount,
+      errors
+    ).open();
+  }
+
+  async batchConvertWithConfirmation(files: TFile[]): Promise<void> {
+    if (this.settings.showBatchConversionWarning) {
+      new BatchConversionWarningModal(this.app, files, this).open();
+    } else {
+      await this.batchConvertInlineTagsToYAML(files);
+    }
+  }
+
+  private cleanEmptyLines(content: string): string {
+    return content
+      .split("\n")
+      .filter((line, index, array) => {
+        // Keep non-empty lines
+        if (line.trim()) return true;
+        // Keep single empty lines between content
+        if (index > 0 && index < array.length - 1) {
+          const prevLine = array[index - 1].trim();
+          const nextLine = array[index + 1].trim();
+          return prevLine && nextLine;
+        }
+        return false;
+      })
+      .join("\n");
+  }
 }
 
 class FolderTagModal extends Modal {
@@ -1403,6 +1496,18 @@ class TagItSettingTab extends PluginSettingTab {
             this.plugin.settings.debugMode = value;
             await this.plugin.saveSettings();
           })
+      );
+
+    // Add this new setting section
+    new Setting(containerEl)
+      .setName("Batch Conversion Warning")
+      .setDesc("Re-enable the warning when converting inline tags to YAML")
+      .addButton((button) =>
+        button.setButtonText("Reset Warning").onClick(async () => {
+          this.plugin.settings.showBatchConversionWarning = true;
+          await this.plugin.saveSettings();
+          new Notice("Batch conversion warning has been re-enabled");
+        })
       );
   }
 }
@@ -1672,6 +1777,122 @@ class ConflictResolutionModal extends Modal {
     this.plugin.updateObsidianTagCache();
     new Notice(`Resolved tag conflicts for file: ${this.file.name}`);
     this.close();
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+class BatchConversionResultModal extends Modal {
+  processedCount: number;
+  successCount: number;
+  errorCount: number;
+  errors: string[];
+
+  constructor(
+    app: App,
+    processedCount: number,
+    successCount: number,
+    errorCount: number,
+    errors: string[]
+  ) {
+    super(app);
+    this.processedCount = processedCount;
+    this.successCount = successCount;
+    this.errorCount = errorCount;
+    this.errors = errors;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h2", { text: "Batch Conversion Complete" });
+
+    const statsContainer = contentEl.createDiv("stats-container");
+    statsContainer.createEl("p", {
+      text: `Processed: ${this.processedCount} files`,
+    });
+    statsContainer.createEl("p", {
+      text: `Successfully converted: ${this.successCount} files`,
+    });
+
+    if (this.errorCount > 0) {
+      const errorSection = contentEl.createDiv("error-section");
+      errorSection.createEl("p", {
+        text: `Failed to process ${this.errorCount} files:`,
+        cls: "error-header",
+      });
+
+      const errorList = errorSection.createEl("ul");
+      this.errors.forEach((fileName) => {
+        errorList.createEl("li", { text: fileName });
+      });
+    }
+
+    new Setting(contentEl).addButton((btn) =>
+      btn
+        .setButtonText("Close")
+        .setCta()
+        .onClick(() => {
+          this.close();
+        })
+    );
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+class BatchConversionWarningModal extends Modal {
+  files: TFile[];
+  plugin: TagItPlugin;
+
+  constructor(app: App, files: TFile[], plugin: TagItPlugin) {
+    super(app);
+    this.files = files;
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h2", { text: "Batch Convert Tags to YAML" });
+
+    contentEl.createEl("p", {
+      text: `This will convert inline tags to YAML front matter in ${this.files.length} file(s). This action cannot be automatically undone.`,
+    });
+
+    new Setting(contentEl)
+      .addToggle((toggle) =>
+        toggle
+          .setValue(true)
+          .setTooltip("Show this warning next time")
+          .onChange((value) => {
+            this.plugin.settings.showBatchConversionWarning = value;
+            this.plugin.saveSettings();
+          })
+      )
+      .setName("Show this warning next time");
+
+    new Setting(contentEl)
+      .addButton((btn) =>
+        btn.setButtonText("Cancel").onClick(() => this.close())
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Proceed")
+          .setCta()
+          .onClick(async () => {
+            this.close();
+            await this.plugin.batchConvertInlineTagsToYAML(this.files);
+          })
+      );
   }
 
   onClose() {

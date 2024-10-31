@@ -103,3 +103,27 @@ body {
   margin-bottom: 1em;
   color: var(--interactive-accent);
 }
+
+.stats-container {
+  margin: 1em 0;
+  padding: 1em;
+  background-color: var(--background-secondary);
+  border-radius: 5px;
+}
+
+.error-section {
+  margin: 1em 0;
+  padding: 1em;
+  background-color: var(--background-secondary);
+  border-radius: 5px;
+}
+
+.error-header {
+  color: var(--text-error);
+  font-weight: bold;
+}
+
+.error-section ul {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}

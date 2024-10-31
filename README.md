@@ -28,15 +28,6 @@ Enhance your note-taking experience in [Obsidian](https://obsidian.md/) by assoc
 
 ## Installation
 
-### From Obsidian Community Plugins
-
-1. Open **Obsidian** and navigate to **Settings** > **Community plugins**.
-2. Click on **Browse** and search for **TagIt**.
-3. Click **Install** next to the TagIt plugin.
-4. After installation, enable the plugin by toggling it on in the **Installed plugins** list.
-
-### Manual Installation
-
 1. Download the latest release from the [Releases](https://github.com/JRStriestocode/TagIT/releases) page.
 2. Extract the contents of the zip file.
 3. Copy `main.js`, `manifest.json`, and `styles.css` into a new folder named `TagIT` in your vault's `.obsidian/plugins` directory.
