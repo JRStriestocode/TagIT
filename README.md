@@ -25,6 +25,27 @@ Enhance your note-taking experience in [Obsidian](https://obsidian.md/) by assoc
 - **Advanced Settings**: Customize plugin behavior through a dedicated settings tab.
 - **Performance Optimizations**: Efficiently handle large vaults with minimal impact on performance.
 - **Theme Compatibility**: Plugin UI adapts to both light and dark themes.
+- **Checklist Tagging and Urgency Management**:
+
+  - **Tag Individual or Multiple Items**:
+    - Select one or more checklist items in your note
+    - Right-click and select "Apply Tag"
+    - Enter a tag and choose an urgency level:
+      - ⚪️ Default (no urgency)
+      - 🟢 Low
+      - 🟡 Moderate
+      - 🟠 Important
+      - 🔴 Critical
+    - Tags and urgency indicators are added to the selected items
+
+- **Change Urgency Levels**:
+  - Right-click on checklist items and select "Change Urgency"
+  - Choose from five urgency levels in a visual modal
+  - Use command palette for quick urgency changes:
+    - "Set checklist urgency to [level]" commands
+    - "Change urgency of checklist items" for modal view
+
+Example:
 
 ## Installation
 
@@ -74,9 +95,42 @@ When moving files between folders with different tags, a modal appears with opti
 
 ### Converting Inline Tags to YAML
 
-- Right-click on a note.
-- Select **Convert Inline Tags to YAML**.
-- Inline tags (`#tag`) within the note will be moved to the YAML front matter.
+- **Single Note Conversion**:
+
+  - Right-click on a note
+  - Select **Convert Inline Tags to YAML**
+  - Inline tags (`#tag`) within the note will be moved to the YAML front matter
+
+- **Batch Folder Conversion**:
+  - Right-click on a folder
+  - Select **Convert All Notes to YAML**
+  - Choose from two options:
+    - **Convert All**: Process all notes in the selected folder and its subfolders
+    - **Convert Folder Only**: Process only notes in the selected folder
+  - A summary will display after conversion showing successful and failed conversions
+
+### Checklist Tagging and Urgency Management
+
+- **Tag Individual or Multiple Items**:
+
+  - Select one or more checklist items in your note
+  - Right-click and select "Apply Tag"
+  - Enter a tag and choose an urgency level:
+    - ⚪️ Default (no urgency)
+    - 🟢 Low
+    - 🟡 Moderate
+    - 🟠 Important
+    - 🔴 Critical
+  - Tags and urgency indicators are added to the selected items
+
+- **Change Urgency Levels**:
+  - Right-click on checklist items and select "Change Urgency"
+  - Choose from five urgency levels in a visual modal
+  - Use command palette for quick urgency changes:
+    - "Set checklist urgency to [level]" commands
+    - "Change urgency of checklist items" for modal view
+
+Example:
 
 ## Configuration
 

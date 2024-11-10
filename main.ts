@@ -11,6 +11,9 @@ import {
   TAbstractFile,
   Menu,
   MenuItem,
+  Editor,
+  EditorPosition,
+  ButtonComponent,
 } from "obsidian";
 
 interface TagItSettings {
@@ -48,12 +51,26 @@ const DEFAULT_DATA: PluginData = {
   version: "1.0.0",
 };
 
+// Add this interface to define the urgency levels
+interface UrgencyLevel {
+  emoji: string;
+  label: string;
+}
+
 export default class TagItPlugin extends Plugin {
   settings: TagItSettings;
   folderTags: FolderTags = {};
   private isInitialLoad: boolean = true;
   private newFolderQueue: TFolder[] = [];
   private moveTimeout: NodeJS.Timeout | null = null;
+
+  private readonly urgencyLevels: UrgencyLevel[] = [
+    { emoji: "⚪️", label: "Default" },
+    { emoji: "🟢", label: "Low" },
+    { emoji: "🟡", label: "Moderate" },
+    { emoji: "🟠", label: "Important" },
+    { emoji: "🔴", label: "Critical" },
+  ];
 
   async onload() {
     try {
@@ -179,12 +196,11 @@ export default class TagItPlugin extends Plugin {
                 .setTitle("Convert All Notes to YAML")
                 .setIcon("tag")
                 .onClick(() => {
-                  const files = file.children.filter(
-                    (child: TAbstractFile): child is TFile =>
-                      child instanceof TFile &&
-                      child.extension.toLowerCase() === "md"
-                  );
-                  this.batchConvertWithConfirmation(files);
+                  new BatchConversionInheritanceModal(
+                    this.app,
+                    file,
+                    this
+                  ).open();
                 });
             });
 
@@ -252,6 +268,115 @@ export default class TagItPlugin extends Plugin {
       if (this.settings.showFolderIcons) {
         this.updateFolderIcons();
       }
+    });
+
+    // Add editor menu event handler
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor) => {
+        const selection = editor.getSelection();
+
+        if (this.containsChecklistItems(selection)) {
+          // Existing "Apply Tag" menu item
+          menu.addItem((item: MenuItem) => {
+            item
+              .setTitle("Apply Tag")
+              .setIcon("tag")
+              .onClick(() => {
+                new ChecklistTagModal(
+                  this.app,
+                  editor,
+                  selection,
+                  this.urgencyLevels,
+                  async (tag: string, urgency: UrgencyLevel) => {
+                    await this.applyTagToChecklist(
+                      editor,
+                      selection,
+                      tag,
+                      urgency
+                    );
+                  }
+                ).open();
+              });
+          });
+
+          // Updated "Change Urgency" menu item
+          menu.addItem((item: MenuItem) => {
+            item
+              .setTitle("Change Urgency")
+              .setIcon("alert-circle")
+              .onClick(() => {
+                new UrgencyModal(
+                  this.app,
+                  editor,
+                  selection,
+                  this.urgencyLevels,
+                  (urgency: UrgencyLevel) => {
+                    this.changeChecklistUrgency(editor, selection, urgency);
+                  }
+                ).open();
+              });
+          });
+        }
+      })
+    );
+
+    // In the onload() method, add these commands after the existing commands
+    this.addCommand({
+      id: "apply-checklist-tag",
+      name: "Apply tag to checklist items",
+      editorCallback: (editor: Editor) => {
+        const selection = editor.getSelection();
+        if (this.containsChecklistItems(selection)) {
+          new ChecklistTagModal(
+            this.app,
+            editor,
+            selection,
+            this.urgencyLevels,
+            async (tag: string, urgency: UrgencyLevel) => {
+              await this.applyTagToChecklist(editor, selection, tag, urgency);
+            }
+          ).open();
+        } else {
+          new Notice("Please select checklist items");
+        }
+      },
+    });
+
+    this.addCommand({
+      id: "change-checklist-urgency",
+      name: "Change urgency of checklist items",
+      editorCallback: (editor: Editor) => {
+        const selection = editor.getSelection();
+        if (this.containsChecklistItems(selection)) {
+          new UrgencyModal(
+            this.app,
+            editor,
+            selection,
+            this.urgencyLevels,
+            (urgency: UrgencyLevel) => {
+              this.changeChecklistUrgency(editor, selection, urgency);
+            }
+          ).open();
+        } else {
+          new Notice("Please select checklist items");
+        }
+      },
+    });
+
+    // Add individual urgency commands
+    this.urgencyLevels.forEach((level) => {
+      this.addCommand({
+        id: `set-checklist-urgency-${level.label.toLowerCase()}`,
+        name: `Set checklist urgency to ${level.emoji} ${level.label}`,
+        editorCallback: (editor: Editor) => {
+          const selection = editor.getSelection();
+          if (this.containsChecklistItems(selection)) {
+            this.changeChecklistUrgency(editor, selection, level);
+          } else {
+            new Notice("Please select checklist items");
+          }
+        },
+      });
     });
   }
 
@@ -599,38 +724,48 @@ export default class TagItPlugin extends Plugin {
   extractTagsFromContent(content: string): string[] {
     const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
     const frontmatterMatch = content.match(frontmatterRegex);
-
     let tags: string[] = [];
 
+    // Extract tags from YAML front matter
     if (frontmatterMatch) {
       const frontmatter = frontmatterMatch[1];
+
       // Match both array-style and list-style YAML tags
-      const yamlTags = frontmatter.match(/tags:\s*(\[.*?\]|(\n\s*-\s*.+)+)/);
-      if (yamlTags) {
-        const tagContent = yamlTags[1];
-        if (tagContent.startsWith("[")) {
-          // Array-style tags
-          tags = tagContent
-            .slice(1, -1)
-            .split(",")
-            .map((tag) => tag.trim());
-        } else {
-          // List-style tags
-          tags = tagContent
-            .split("\n")
-            .map((line) => line.replace(/^\s*-\s*/, "").trim())
-            .filter((tag) => tag);
-        }
+      const yamlArrayMatch = frontmatter.match(/tags:\s*\[(.*?)\]/);
+      const yamlListMatch = frontmatter.match(/tags:\s*\n((?:\s*-\s*.+\n?)*)/);
+
+      if (yamlArrayMatch) {
+        // Handle array-style tags [tag1, tag2]
+        tags = yamlArrayMatch[1]
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter((tag) => tag.length > 0);
+      } else if (yamlListMatch) {
+        // Handle list-style tags
+        // - tag1
+        // - tag2
+        tags = yamlListMatch[1]
+          .split("\n")
+          .map((line) => line.replace(/^\s*-\s*/, "").trim())
+          .filter((tag) => tag.length > 0);
       }
     }
 
-    // Extract inline tags
-    const inlineTags = content.match(/#[^\s#]+/g);
+    // Extract inline tags from content
+    const contentWithoutFrontmatter = frontmatterMatch
+      ? content.slice(frontmatterMatch[0].length)
+      : content;
+
+    // More comprehensive regex for inline tags
+    const inlineTagRegex = /#[a-zA-Z0-9_/\-]+(?=[^a-zA-Z0-9_/\-]|$)/g;
+    const inlineTags = contentWithoutFrontmatter.match(inlineTagRegex);
+
     if (inlineTags) {
       tags = [...tags, ...inlineTags.map((tag) => tag.substring(1))];
     }
 
-    return [...new Set(tags)]; // Remove duplicates
+    // Remove duplicates and empty tags
+    return [...new Set(tags)].filter((tag) => tag.length > 0);
   }
 
   async convertInlineTagsToYAML(file: TFile) {
@@ -1283,6 +1418,99 @@ export default class TagItPlugin extends Plugin {
       })
       .join("\n");
   }
+
+  // Add this method to the TagItPlugin class
+  async batchConvertWithInheritance(
+    folder: TFolder,
+    includeSubfolders: boolean
+  ): Promise<void> {
+    // Collect all markdown files based on the inheritance option
+    const files: TFile[] = [];
+
+    const collectFiles = (currentFolder: TFolder) => {
+      currentFolder.children.forEach((child) => {
+        if (child instanceof TFile && child.extension.toLowerCase() === "md") {
+          files.push(child);
+        } else if (child instanceof TFolder && includeSubfolders) {
+          collectFiles(child);
+        }
+      });
+    };
+
+    collectFiles(folder);
+
+    // Use the existing batch conversion method
+    await this.batchConvertInlineTagsToYAML(files);
+  }
+
+  private containsChecklistItems(text: string): boolean {
+    // Check if the text contains at least one checklist item
+    const checklistRegex = /^(\s*)?- \[(x| )\]/m;
+    return checklistRegex.test(text);
+  }
+
+  private async applyTagToChecklist(
+    editor: Editor,
+    selection: string,
+    tag: string,
+    urgency: UrgencyLevel
+  ) {
+    const lines = selection.split("\n");
+    const checklistRegex = /^(\s*)?- \[(x| )\]/;
+
+    const updatedLines = lines.map((line) => {
+      if (checklistRegex.test(line)) {
+        // Remove any existing tags and urgency indicators
+        const cleanLine = line.replace(/#\w+\s*[🟢🟡🟠🔴⚪️]?\s*$/, "").trim();
+
+        // Add new tag and urgency (if not default)
+        const urgencyEmoji = urgency.emoji !== "⚪️" ? ` ${urgency.emoji}` : "";
+        return `${cleanLine} #${tag}${urgencyEmoji}`;
+      }
+      return line;
+    });
+
+    // Replace the selection with updated content
+    editor.replaceSelection(updatedLines.join("\n"));
+  }
+
+  // Add this new method to the TagItPlugin class
+  private async changeChecklistUrgency(
+    editor: Editor,
+    selection: string,
+    urgency: UrgencyLevel
+  ) {
+    const lines = selection.split("\n");
+    const checklistRegex = /^(\s*)?- \[(x| )\]/;
+    const urgencyRegex = /\s*[🟢🟡🟠🔴⚪️]\s*$/;
+
+    const updatedLines = lines.map((line) => {
+      if (checklistRegex.test(line)) {
+        // First remove any existing urgency indicators
+        let cleanLine = line;
+
+        // Remove any existing urgency emojis
+        this.urgencyLevels.forEach((level) => {
+          const emojiRegex = new RegExp(`\\s*${level.emoji}\\s*$`);
+          cleanLine = cleanLine.replace(emojiRegex, "");
+        });
+
+        // Trim any trailing spaces
+        cleanLine = cleanLine.replace(/\s+$/, "");
+
+        // Add new urgency (if not default)
+        if (urgency.emoji !== "⚪️") {
+          cleanLine = `${cleanLine} ${urgency.emoji}`;
+        }
+
+        return cleanLine;
+      }
+      return line;
+    });
+
+    // Replace the selection with updated content
+    editor.replaceSelection(updatedLines.join("\n"));
+  }
 }
 
 class FolderTagModal extends Modal {
@@ -1576,20 +1804,21 @@ class ConfirmationModal extends Modal {
     contentEl.createEl("p", { text: this.message });
 
     new Setting(contentEl)
-      .addButton((btn) =>
+      .setClass("tagit-button-container")
+      .addButton((btn: ButtonComponent) => {
         btn.setButtonText("Cancel").onClick(() => {
           this.close();
-        })
-      )
-      .addButton((btn) =>
+        });
+      })
+      .addButton((btn: ButtonComponent) => {
         btn
           .setButtonText("Confirm")
           .setCta()
           .onClick(() => {
             this.close();
             this.onConfirm();
-          })
-      );
+          });
+      });
   }
 
   onClose() {
@@ -1618,39 +1847,53 @@ class TagSelectionModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("p", { text: this.message });
 
-    const tagContainer = contentEl.createDiv("tag-container");
+    // Standardize header style
+    contentEl.createEl("h2", { text: "Select Tags" });
+
+    // Add consistent spacing
+    const modalContent = contentEl.createDiv({ cls: "tagit-modal-content" });
+    modalContent.createEl("p", {
+      text: this.message,
+      cls: "tagit-description",
+    });
+
+    // Create tag container with consistent styling
+    const tagContainer = modalContent.createDiv("tagit-tag-container");
     this.tags.forEach((tag) => {
-      const tagEl = tagContainer.createEl("div", { cls: "tag" });
+      const tagEl = tagContainer.createEl("div", { cls: "tagit-tag" });
       tagEl.createSpan({ text: tag });
-      const removeButton = tagEl.createEl("button", { text: "X" });
+      const removeButton = tagEl.createEl("button", {
+        text: "×",
+        cls: "tagit-tag-remove",
+      });
       removeButton.onclick = () => {
         this.tags = this.tags.filter((t) => t !== tag);
         tagEl.remove();
       };
     });
 
+    // Standardize button container
     new Setting(contentEl)
-      .addButton((btn) =>
+      .setClass("tagit-button-container")
+      .addButton((btn: ButtonComponent) => {
         btn.setButtonText("Cancel").onClick(() => {
           this.close();
-        })
-      )
-      .addButton((btn) =>
+        });
+      })
+      .addButton((btn: ButtonComponent) => {
         btn
           .setButtonText("Confirm")
           .setCta()
           .onClick(() => {
             this.close();
             this.onConfirm(this.tags);
-          })
-      );
+          });
+      });
   }
 
   onClose() {
     this.contentEl.empty();
-    this.titleEl.empty();
   }
 }
 
@@ -1857,29 +2100,38 @@ class BatchConversionResultModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
+    // Standardize header style
     contentEl.createEl("h2", { text: "Batch Conversion Complete" });
 
-    const statsContainer = contentEl.createDiv("stats-container");
+    // Add consistent spacing
+    const statsContainer = contentEl.createDiv({ cls: "tagit-modal-content" });
+
+    // Standardize text styles
     statsContainer.createEl("p", {
       text: `Processed: ${this.processedCount} files`,
+      cls: "tagit-stats",
     });
     statsContainer.createEl("p", {
       text: `Successfully converted: ${this.successCount} files`,
+      cls: "tagit-stats",
     });
 
     if (this.errorCount > 0) {
-      const errorSection = contentEl.createDiv("error-section");
+      const errorSection = contentEl.createDiv({ cls: "tagit-error-section" });
       errorSection.createEl("p", {
         text: `Failed to process ${this.errorCount} files:`,
-        cls: "error-header",
+        cls: "tagit-error-header",
       });
 
-      const errorList = errorSection.createEl("ul");
+      const errorList = errorSection.createEl("ul", {
+        cls: "tagit-error-list",
+      });
       this.errors.forEach((fileName) => {
         errorList.createEl("li", { text: fileName });
       });
     }
 
+    // Standardize button container
     new Setting(contentEl).addButton((btn) =>
       btn
         .setButtonText("Close")
@@ -1910,13 +2162,19 @@ class BatchConversionWarningModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
+    // Standardize header style
     contentEl.createEl("h2", { text: "Batch Convert Tags to YAML" });
 
-    contentEl.createEl("p", {
+    // Add consistent spacing
+    const warningContent = contentEl.createDiv({ cls: "tagit-modal-content" });
+    warningContent.createEl("p", {
       text: `This will convert inline tags to YAML front matter in ${this.files.length} file(s). This action cannot be automatically undone.`,
+      cls: "tagit-warning",
     });
 
+    // Standardize toggle style
     new Setting(contentEl)
+      .setClass("tagit-setting")
       .addToggle((toggle) =>
         toggle
           .setValue(true)
@@ -1928,7 +2186,9 @@ class BatchConversionWarningModal extends Modal {
       )
       .setName("Show this warning next time");
 
+    // Standardize button container
     new Setting(contentEl)
+      .setClass("tagit-button-container")
       .addButton((btn) =>
         btn.setButtonText("Cancel").onClick(() => this.close())
       )
@@ -1944,6 +2204,279 @@ class BatchConversionWarningModal extends Modal {
   }
 
   onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+class BatchConversionInheritanceModal extends Modal {
+  folder: TFolder;
+  plugin: TagItPlugin;
+  fileCount: { all: number; immediate: number };
+
+  constructor(app: App, folder: TFolder, plugin: TagItPlugin) {
+    super(app);
+    this.folder = folder;
+    this.plugin = plugin;
+    this.fileCount = {
+      all: 0,
+      immediate: 0,
+    };
+  }
+
+  async onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    // Calculate file counts
+    this.fileCount.all = this.countMarkdownFiles(this.folder, true);
+    this.fileCount.immediate = this.countMarkdownFiles(this.folder, false);
+
+    // Standardize header style
+    contentEl.createEl("h2", { text: "Convert Tags to YAML" });
+
+    // Add consistent spacing
+    const modalContent = contentEl.createDiv({ cls: "tagit-modal-content" });
+    modalContent.createEl("p", {
+      text: "Choose how you would like to convert inline tags to YAML front matter:",
+      cls: "tagit-description",
+    });
+
+    // Standardize option styles
+    new Setting(modalContent)
+      .setClass("tagit-setting")
+      .setName(`Convert All (${this.fileCount.all} files)`)
+      .setDesc("Convert tags in this folder and all subfolders")
+      .addButton((btn) =>
+        btn
+          .setButtonText("Convert All")
+          .setCta()
+          .onClick(async () => {
+            this.close();
+            await this.plugin.batchConvertWithInheritance(this.folder, true);
+          })
+      );
+
+    new Setting(modalContent)
+      .setClass("tagit-setting")
+      .setName(`Convert Folder Only (${this.fileCount.immediate} files)`)
+      .setDesc("Convert tags only in this folder (excluding subfolders)")
+      .addButton((btn) =>
+        btn
+          .setButtonText("Convert Folder")
+          .setCta()
+          .onClick(async () => {
+            this.close();
+            await this.plugin.batchConvertWithInheritance(this.folder, false);
+          })
+      );
+
+    // Standardize button container
+    new Setting(contentEl).setClass("tagit-button-container").addButton((btn) =>
+      btn.setButtonText("Cancel").onClick(() => {
+        this.close();
+      })
+    );
+  }
+
+  private countMarkdownFiles(
+    folder: TFolder,
+    includeSubfolders: boolean
+  ): number {
+    let count = 0;
+
+    // Count immediate markdown files
+    folder.children.forEach((child) => {
+      if (child instanceof TFile && child.extension.toLowerCase() === "md") {
+        count++;
+      }
+    });
+
+    // If including subfolders, recursively count their files
+    if (includeSubfolders) {
+      folder.children.forEach((child) => {
+        if (child instanceof TFolder) {
+          count += this.countMarkdownFiles(child, true);
+        }
+      });
+    }
+
+    return count;
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+// Add the new ChecklistTagModal class
+class ChecklistTagModal extends Modal {
+  private editor: Editor;
+  private selection: string;
+  private urgencyLevels: UrgencyLevel[];
+  private onSubmit: (tag: string, urgency: UrgencyLevel) => void;
+  private tagInput: TextComponent;
+  private selectedUrgency: UrgencyLevel;
+
+  constructor(
+    app: App,
+    editor: Editor,
+    selection: string,
+    urgencyLevels: UrgencyLevel[],
+    onSubmit: (tag: string, urgency: UrgencyLevel) => void
+  ) {
+    super(app);
+    this.editor = editor;
+    this.selection = selection;
+    this.urgencyLevels = urgencyLevels;
+    this.onSubmit = onSubmit;
+    this.selectedUrgency = urgencyLevels[0];
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h2", { text: "Apply Tag to Checklist" });
+
+    const modalContent = contentEl.createDiv({ cls: "tagit-modal-content" });
+
+    new Setting(modalContent)
+      .setName("Tag")
+      .setDesc("Enter a tag (without #)")
+      .addText((text) => {
+        this.tagInput = text;
+        text.onChange((value) => {
+          text.setValue(value.replace(/[^a-zA-Z0-9_-]/g, ""));
+        });
+
+        text.inputEl.addEventListener("keydown", (event: KeyboardEvent) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            this.handleSubmit();
+          }
+        });
+      });
+
+    new Setting(modalContent)
+      .setName("Urgency")
+      .setDesc("Select urgency level")
+      .addDropdown((dropdown) => {
+        this.urgencyLevels.forEach((level) => {
+          dropdown.addOption(level.emoji, `${level.emoji} ${level.label}`);
+        });
+        dropdown.setValue(this.selectedUrgency.emoji);
+        dropdown.onChange((value) => {
+          this.selectedUrgency =
+            this.urgencyLevels.find((level) => level.emoji === value) ||
+            this.urgencyLevels[0];
+        });
+      });
+
+    new Setting(contentEl)
+      .setClass("tagit-button-container")
+      .addButton((btn) => {
+        btn.setButtonText("Cancel").onClick(() => {
+          this.close();
+        });
+      })
+      .addButton((btn) => {
+        btn
+          .setButtonText("Apply")
+          .setCta()
+          .onClick(() => {
+            this.handleSubmit();
+          });
+      });
+  }
+
+  private handleSubmit(): void {
+    const tag = this.tagInput.getValue();
+    if (tag) {
+      this.onSubmit(tag, this.selectedUrgency);
+      this.close();
+    } else {
+      new Notice("Please enter a tag");
+    }
+  }
+
+  onClose(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+// Add this new modal class
+class UrgencyModal extends Modal {
+  private editor: Editor;
+  private selection: string;
+  private urgencyLevels: UrgencyLevel[];
+  private onSubmit: (urgency: UrgencyLevel) => void;
+
+  constructor(
+    app: App,
+    editor: Editor,
+    selection: string,
+    urgencyLevels: UrgencyLevel[],
+    onSubmit: (urgency: UrgencyLevel) => void
+  ) {
+    super(app);
+    this.editor = editor;
+    this.selection = selection;
+    this.urgencyLevels = urgencyLevels;
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h2", { text: "Change Urgency Level" });
+    const modalContent = contentEl.createDiv({ cls: "tagit-modal-content" });
+
+    // Create container for horizontal buttons
+    const buttonsContainer = modalContent.createDiv({
+      cls: "urgency-buttons-container",
+    });
+
+    // Create a button for each urgency level
+    this.urgencyLevels.forEach((level) => {
+      const buttonDiv = buttonsContainer.createDiv({
+        cls: "urgency-button",
+        attr: { "aria-label": level.label },
+      });
+
+      // Add emoji
+      buttonDiv.createDiv({
+        cls: "urgency-emoji",
+        text: level.emoji,
+      });
+
+      // Add label
+      buttonDiv.createDiv({
+        cls: "urgency-label",
+        text: level.label,
+      });
+
+      // Add click handler
+      buttonDiv.addEventListener("click", () => {
+        this.onSubmit(level);
+        this.close();
+      });
+    });
+
+    // Add cancel button at the bottom
+    new Setting(contentEl)
+      .setClass("tagit-button-container")
+      .addButton((btn) => {
+        btn.setButtonText("Cancel").onClick(() => {
+          this.close();
+        });
+      });
+  }
+
+  onClose(): void {
     const { contentEl } = this;
     contentEl.empty();
   }
