@@ -201,3 +201,45 @@ body {
     width: 100%;
   }
 }
+
+/* Update the urgency button styles */
+.urgency-buttons-container {
+  display: flex;
+  justify-content: space-around;
+  align-items: stretch;
+  gap: 15px;
+  margin: 20px 0;
+}
+
+.urgency-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 15px;
+  border-radius: var(--tagit-border-radius);
+  cursor: pointer;
+  transition: var(--tagit-transition);
+  background-color: var(--background-secondary);
+  flex: 1;
+  min-width: 80px;
+  height: 80px;
+}
+
+.urgency-button:hover {
+  background-color: var(--background-modifier-hover);
+  transform: translateY(-2px);
+}
+
+.urgency-emoji {
+  font-size: 1.5em;
+  margin-bottom: 8px;
+  line-height: 1;
+}
+
+.urgency-label {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.2;
+}
