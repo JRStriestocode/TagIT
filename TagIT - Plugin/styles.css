@@ -1,24 +1,58 @@
-.tag-container {
-  margin-bottom: 1em;
+/* General Styles */
+body {
+  --tagit-primary: var(--interactive-accent);
+  --tagit-primary-hover: var(--interactive-accent-hover);
+  --tagit-text-on-primary: var(--text-on-accent);
+  --tagit-border-radius: 4px;
+  --tagit-transition: all 0.2s ease;
+
+  /* Add these new variables */
+  --icon-color-invert: 0.5;
+  --icon-color-sepia: 0.5;
+  --icon-color-saturate: 1;
+  --icon-color-hue-rotate: 180deg;
+  --icon-color-brightness: 1;
 }
 
-.tag {
-  display: inline-block;
-  background-color: var(--interactive-accent);
-  color: var(--text-on-accent);
-  padding: 2px 6px;
-  margin: 2px;
-  border-radius: 4px;
+/* Tag Styles */
+.tagit-tag-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 1em 0;
 }
 
-.tag button {
+.tagit-tag {
+  display: inline-flex;
+  align-items: center;
+  background-color: var(--tagit-primary);
+  color: var(--tagit-text-on-primary);
+  padding: 4px 8px;
+  border-radius: var(--tagit-border-radius);
+  font-size: 0.9em;
+  transition: var(--tagit-transition);
+}
+
+.tagit-tag-remove {
   background: none;
   border: none;
-  color: var(--text-on-accent);
-  margin-left: 4px;
+  color: var(--tagit-text-on-primary);
+  margin-left: 6px;
+  padding: 0 4px;
   cursor: pointer;
+  font-size: 1.2em;
+  line-height: 1;
+  opacity: 0.7;
+  transition: var(--tagit-transition);
 }
 
+.tagit-tag-remove:hover {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+/* Folder Icon Styles */
 .tagged-folder::after {
   content: "";
   display: inline-block;
@@ -30,22 +64,19 @@
   background-repeat: no-repeat;
   background-position: center;
   vertical-align: middle;
-  filter: var(--icon-color-filter);
-}
-
-body {
-  --icon-color: var(--text-accent);
-  --icon-color-filter: invert(var(--icon-color-invert))
-    sepia(var(--icon-color-sepia)) saturate(var(--icon-color-saturate))
+  opacity: 0.5;
+  transition: var(--tagit-transition);
+  filter: invert(var(--icon-color-invert)) sepia(var(--icon-color-sepia))
+    saturate(var(--icon-color-saturate))
     hue-rotate(var(--icon-color-hue-rotate))
     brightness(var(--icon-color-brightness));
-  --icon-color-invert: 0.5;
-  --icon-color-sepia: 0.5;
-  --icon-color-saturate: 1;
-  --icon-color-hue-rotate: 180deg;
-  --icon-color-brightness: 1;
 }
 
+.tagged-folder:hover::after {
+  opacity: 0.8;
+}
+
+/* Settings Styles */
 .tagit-setting-item {
   border-top: 1px solid var(--background-modifier-border);
   padding: 18px 0;
@@ -60,9 +91,16 @@ body {
   padding-top: 0;
 }
 
+/* Modal Styles */
 .tagit-modal {
   background-color: var(--background-primary);
   color: var(--text-normal);
+  border-radius: var(--tagit-border-radius);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.tagit-modal-content {
+  margin: 1em 0;
 }
 
 .tagit-modal input[type="text"],
@@ -70,25 +108,32 @@ body {
   background-color: var(--background-secondary);
   color: var(--text-normal);
   border: 1px solid var(--background-modifier-border);
+  border-radius: var(--tagit-border-radius);
+  padding: 8px;
+  transition: var(--tagit-transition);
+}
+
+.tagit-modal input[type="text"]:focus,
+.tagit-modal textarea:focus {
+  border-color: var(--tagit-primary);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
 }
 
 .tagit-modal button {
-  background-color: var(--interactive-accent);
-  color: var(--text-on-accent);
+  background-color: var(--tagit-primary);
+  color: var(--tagit-text-on-primary);
+  border: none;
+  border-radius: var(--tagit-border-radius);
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: var(--tagit-transition);
 }
 
 .tagit-modal button:hover {
-  background-color: var(--interactive-accent-hover);
+  background-color: var(--tagit-primary-hover);
 }
 
-/* Add more specific selectors to prevent style conflicts */
-.workspace-leaf-content[data-type="file-explorer"]
-  .nav-folder-title-content.tagged-folder::after {
-  content: "";
-  display: inline-block;
-  /* ... rest of the styles ... */
-}
-
+/* Logo Styles */
 .tagit-logo-container {
   display: flex;
   flex-direction: column;
@@ -101,29 +146,58 @@ body {
   width: 150px;
   height: auto;
   margin-bottom: 1em;
-  color: var(--interactive-accent);
+  color: var(--tagit-primary);
 }
 
-.stats-container {
+/* Stats and Error Styles */
+.tagit-stats-container,
+.tagit-error-section {
   margin: 1em 0;
   padding: 1em;
   background-color: var(--background-secondary);
-  border-radius: 5px;
+  border-radius: var(--tagit-border-radius);
 }
 
-.error-section {
-  margin: 1em 0;
-  padding: 1em;
-  background-color: var(--background-secondary);
-  border-radius: 5px;
-}
-
-.error-header {
+.tagit-error-header {
   color: var(--text-error);
   font-weight: bold;
 }
 
-.error-section ul {
+.tagit-error-list {
   margin: 0.5em 0;
   padding-left: 1.5em;
+}
+
+.tagit-description {
+  margin-bottom: 1em;
+  color: var(--text-muted);
+}
+
+.tagit-stats {
+  margin: 0.5em 0;
+  color: var(--text-normal);
+}
+
+.tagit-warning {
+  color: var(--text-warning);
+  margin: 1em 0;
+}
+
+/* Button Container */
+.tagit-button-container {
+  margin-top: 1em;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .tagit-button-container {
+    flex-direction: column;
+  }
+
+  .tagit-button-container button {
+    width: 100%;
+  }
 }
